@@ -1,0 +1,17 @@
+{
+  "name": "obsidian-project-hub",
+  "version": "0.4.1",
+  "private": true,
+  "description": "Obsidian plugin for project, version, and task management with Markdown and YAML.",
+  "scripts": {
+    "build": "node esbuild.config.mjs production",
+    "dev": "node esbuild.config.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.30",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.25.1",
+    "obsidian": "latest",
+    "typescript": "^5.8.2"
+  }
+}
