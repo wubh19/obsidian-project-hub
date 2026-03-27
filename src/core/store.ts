@@ -40,6 +40,7 @@ export class ProjectStore {
   private readonly app: App;
   private readonly listeners = new Set<StoreListener>();
 
+  private declaredProjects: ProjectRecord[] = [];
   private projects: ProjectRecord[] = [];
   private versions: VersionRecord[] = [];
   private tasks: TaskRecord[] = [];
@@ -53,10 +54,11 @@ export class ProjectStore {
     const files = this.app.vault.getMarkdownFiles();
     const parsed = await Promise.all(files.map((file) => parseMarkdownFile(this.app, file)));
 
-    this.projects = parsed.map((item) => item.project).filter(isProject).sort(compareByPath);
+    this.declaredProjects = parsed.map((item) => item.project).filter(isProject).sort(compareByPath);
     this.versions = parsed.map((item) => item.version).filter(isVersion).sort(compareByPath);
     this.tasks = parsed.flatMap((item) => item.tasks).filter(isTask).sort(compareByPath);
     this.roadmaps = parsed.map((item) => item.roadmap).filter(isRoadmap).sort(compareByPath);
+    this.projects = buildProjectRecords(this.declaredProjects, this.versions, this.tasks, this.roadmaps);
     this.emitChange();
   }
 
@@ -69,8 +71,8 @@ export class ProjectStore {
     const parsed = await parseMarkdownFile(this.app, file);
     if (parsed.project) {
       if (isProject(parsed.project)) {
-        this.projects.push(parsed.project);
-        this.projects.sort(compareByPath);
+        this.declaredProjects.push(parsed.project);
+        this.declaredProjects.sort(compareByPath);
       }
     }
     if (parsed.version && isVersion(parsed.version)) {
@@ -86,18 +88,20 @@ export class ProjectStore {
       this.roadmaps.sort(compareByPath);
     }
 
+    this.projects = buildProjectRecords(this.declaredProjects, this.versions, this.tasks, this.roadmaps);
     this.emitChange();
   }
 
   removeFile(path: string): void {
-    const beforeCounts = [this.projects.length, this.versions.length, this.tasks.length, this.roadmaps.length];
+    const beforeCounts = [this.declaredProjects.length, this.projects.length, this.versions.length, this.tasks.length, this.roadmaps.length];
 
-    this.projects = this.projects.filter((item) => item.filePath !== path);
+    this.declaredProjects = this.declaredProjects.filter((item) => item.filePath !== path);
     this.versions = this.versions.filter((item) => item.filePath !== path);
     this.tasks = this.tasks.filter((item) => item.filePath !== path);
     this.roadmaps = this.roadmaps.filter((item) => item.filePath !== path);
+    this.projects = buildProjectRecords(this.declaredProjects, this.versions, this.tasks, this.roadmaps);
 
-    const afterCounts = [this.projects.length, this.versions.length, this.tasks.length, this.roadmaps.length];
+    const afterCounts = [this.declaredProjects.length, this.projects.length, this.versions.length, this.tasks.length, this.roadmaps.length];
     const changed = beforeCounts.some((count, index) => count !== afterCounts[index]);
     if (changed) {
       this.emitChange();
@@ -331,4 +335,34 @@ function normalizeRoadmapDate(rawValue: string, baseYear: number): string | null
   }
 
   return null;
+}
+
+function buildProjectRecords(
+  declaredProjects: ProjectRecord[],
+  versions: VersionRecord[],
+  tasks: TaskRecord[],
+  roadmaps: RoadmapRecord[]
+): ProjectRecord[] {
+  const projects = new Map<string, ProjectRecord>();
+
+  for (const project of declaredProjects) {
+    projects.set(project.project, project);
+  }
+
+  for (const record of [...versions, ...tasks, ...roadmaps]) {
+    if (projects.has(record.project)) {
+      continue;
+    }
+
+    projects.set(record.project, {
+      type: "project",
+      filePath: record.filePath,
+      title: record.project,
+      modifiedTime: record.modifiedTime,
+      project: record.project,
+      projectPath: record.projectPath
+    });
+  }
+
+  return [...projects.values()].sort(compareByPath);
 }

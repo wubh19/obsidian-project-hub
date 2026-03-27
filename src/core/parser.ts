@@ -17,6 +17,11 @@ interface FrontmatterLike {
   [key: string]: unknown;
 }
 
+interface ResolvedProjectInfo {
+  project?: string;
+  projectPath?: string;
+}
+
 function parseFrontmatterFromContent(content: string): FrontmatterLike | undefined {
   if (!content.startsWith("---")) {
     return undefined;
@@ -56,21 +61,46 @@ function normalizeString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function inferProjectFromPath(filePath: string): string | undefined {
+function inferProjectFromPath(filePath: string): ResolvedProjectInfo {
   const normalizedPath = filePath.replace(/\\/g, "/");
-  const segments = normalizedPath.split("/");
+  const segments = normalizedPath.split("/").filter((segment) => segment.length > 0);
   const projectsIndex = segments.findIndex((segment) => segment === "Projects");
-  if (projectsIndex === -1 || projectsIndex + 1 >= segments.length) {
-    return undefined;
+  if (projectsIndex !== -1 && projectsIndex + 1 < segments.length) {
+    return {
+      project: segments[projectsIndex + 1],
+      projectPath: segments.slice(0, projectsIndex + 2).join("/")
+    };
   }
 
-  return segments[projectsIndex + 1];
+  const containerIndex = segments.findIndex(
+    (segment, index) => index > 0 && ["Versions", "Ops", "Docs"].includes(segment)
+  );
+  if (containerIndex !== -1) {
+    return {
+      project: segments[containerIndex - 1],
+      projectPath: segments.slice(0, containerIndex).join("/")
+    };
+  }
+
+  const fileName = segments[segments.length - 1] ?? "";
+  if (/^(00_Project|01_Roadmap)\.md$/i.test(fileName) && segments.length >= 2) {
+    return {
+      project: segments[segments.length - 2],
+      projectPath: segments.slice(0, -1).join("/")
+    };
+  }
+
+  return {};
 }
 
-function resolveProject(frontmatter: FrontmatterLike, file: TFile): string | undefined {
-  return normalizeString(frontmatter.project)
-    ?? normalizeString(frontmatter.name)
-    ?? inferProjectFromPath(file.path);
+function resolveProject(frontmatter: FrontmatterLike, file: TFile): ResolvedProjectInfo {
+  const inferred = inferProjectFromPath(file.path);
+  return {
+    project: normalizeString(frontmatter.project)
+      ?? normalizeString(frontmatter.name)
+      ?? inferred.project,
+    projectPath: inferred.projectPath
+  };
 }
 
 function getTitleFromBody(content: string, file: TFile): string {
@@ -152,6 +182,7 @@ function parseChecklistTasks(
   content: string,
   file: TFile,
   project: string,
+  projectPath: string,
   sourceType: "version-task" | "ops-task",
   source: string,
   version?: string
@@ -179,6 +210,7 @@ function parseChecklistTasks(
       title,
       modifiedTime: file.stat.mtime,
       project,
+      projectPath,
       version,
       owner: extractOwner(rawText),
       priority: extractPriority(rawText),
@@ -196,8 +228,8 @@ function parseChecklistTasks(
 }
 
 function parseProject(frontmatter: FrontmatterLike, file: TFile, content: string): ProjectRecord | null {
-  const project = resolveProject(frontmatter, file);
-  if (!project) {
+  const projectInfo = resolveProject(frontmatter, file);
+  if (!projectInfo.project || !projectInfo.projectPath) {
     return null;
   }
 
@@ -206,7 +238,8 @@ function parseProject(frontmatter: FrontmatterLike, file: TFile, content: string
     filePath: file.path,
     title: getTitleFromBody(content, file),
     modifiedTime: file.stat.mtime,
-    project,
+    project: projectInfo.project,
+    projectPath: projectInfo.projectPath,
     owner: normalizeString(frontmatter.owner),
     status: normalizeString(frontmatter.status),
     start: normalizeString(frontmatter.start),
@@ -215,9 +248,9 @@ function parseProject(frontmatter: FrontmatterLike, file: TFile, content: string
 }
 
 function parseVersion(frontmatter: FrontmatterLike, file: TFile, content: string): VersionRecord | null {
-  const project = resolveProject(frontmatter, file);
+  const projectInfo = resolveProject(frontmatter, file);
   const version = normalizeString(frontmatter.version);
-  if (!project || !version) {
+  if (!projectInfo.project || !projectInfo.projectPath || !version) {
     return null;
   }
 
@@ -226,7 +259,8 @@ function parseVersion(frontmatter: FrontmatterLike, file: TFile, content: string
     filePath: file.path,
     title: getTitleFromBody(content, file),
     modifiedTime: file.stat.mtime,
-    project,
+    project: projectInfo.project,
+    projectPath: projectInfo.projectPath,
     version,
     status: normalizeString(frontmatter.status),
     start: normalizeString(frontmatter.start),
@@ -236,8 +270,8 @@ function parseVersion(frontmatter: FrontmatterLike, file: TFile, content: string
 }
 
 function parseTask(frontmatter: FrontmatterLike, file: TFile, content: string): TaskRecord | null {
-  const project = resolveProject(frontmatter, file);
-  if (!project) {
+  const projectInfo = resolveProject(frontmatter, file);
+  if (!projectInfo.project || !projectInfo.projectPath) {
     return null;
   }
 
@@ -251,7 +285,8 @@ function parseTask(frontmatter: FrontmatterLike, file: TFile, content: string): 
     filePath: file.path,
     title: taskTitle,
     modifiedTime: file.stat.mtime,
-    project,
+    project: projectInfo.project,
+    projectPath: projectInfo.projectPath,
     version: normalizeString(frontmatter.version),
     owner: normalizeString(frontmatter.owner),
     priority: normalizeString(frontmatter.priority),
@@ -267,8 +302,8 @@ function parseTask(frontmatter: FrontmatterLike, file: TFile, content: string): 
 }
 
 function parseRoadmap(frontmatter: FrontmatterLike, file: TFile, content: string): RoadmapRecord | null {
-  const project = resolveProject(frontmatter, file);
-  if (!project) {
+  const projectInfo = resolveProject(frontmatter, file);
+  if (!projectInfo.project || !projectInfo.projectPath) {
     return null;
   }
 
@@ -277,7 +312,8 @@ function parseRoadmap(frontmatter: FrontmatterLike, file: TFile, content: string
     filePath: file.path,
     title: getTitleFromBody(content, file),
     modifiedTime: file.stat.mtime,
-    project,
+    project: projectInfo.project,
+    projectPath: projectInfo.projectPath,
     markdownTable: getRoadmapTable(content)
   };
 }
@@ -304,7 +340,7 @@ export async function parseMarkdownFile(app: App, file: TFile): Promise<ParsedMa
       tasks: []
     };
   }
-  const project = resolveProject(frontmatter, file);
+  const projectInfo = resolveProject(frontmatter, file);
 
   switch (type) {
     case "project":
@@ -315,7 +351,7 @@ export async function parseMarkdownFile(app: App, file: TFile): Promise<ParsedMa
         tasks: []
       };
     case "version":
-      if (!project) {
+      if (!projectInfo.project) {
         return { project: null, version: null, roadmap: null, tasks: [] };
       }
       const versionRecord = parseVersion(frontmatter, file, content);
@@ -324,25 +360,35 @@ export async function parseMarkdownFile(app: App, file: TFile): Promise<ParsedMa
         version: versionRecord,
         roadmap: null,
         tasks: versionRecord
-          ? parseChecklistTasks(content, file, project, "version-task", versionRecord.version, versionRecord.version)
+          ? parseChecklistTasks(
+            content,
+            file,
+            versionRecord.project,
+            versionRecord.projectPath,
+            "version-task",
+            versionRecord.version,
+            versionRecord.version
+          )
           : []
       };
     case "ops":
-      if (!project) {
+      if (!projectInfo.project || !projectInfo.projectPath) {
         return { project: null, version: null, roadmap: null, tasks: [] };
       }
       return {
         project: null,
         version: null,
         roadmap: null,
-        tasks: parseChecklistTasks(content, file, project, "ops-task", "运维")
+        tasks: parseChecklistTasks(content, file, projectInfo.project, projectInfo.projectPath, "ops-task", "运维")
       };
     case "task":
       return {
         project: null,
         version: null,
         roadmap: null,
-        tasks: project ? [parseTask(frontmatter, file, content)].filter((task): task is TaskRecord => Boolean(task)) : []
+        tasks: projectInfo.project
+          ? [parseTask(frontmatter, file, content)].filter((task): task is TaskRecord => Boolean(task))
+          : []
       };
     case "roadmap":
       return {

@@ -19,6 +19,33 @@ npm.cmd install
 npm.cmd run dev
 ```
 
+### 开发完成后一键发布到本地 Obsidian
+
+```bash
+npm.cmd run release
+```
+
+首次使用前，先将 `obsidian-project-hub.deploy.example.json` 复制为 `obsidian-project-hub.deploy.local.json`，并填写你的 Vault 路径。
+
+### 自动升级版本号并生成发布模板
+
+```bash
+npm.cmd run version:bump -- 0.4.2
+```
+
+可选地也可以同时指定 `minAppVersion`：
+
+```bash
+npm.cmd run version:bump -- 0.4.2 1.5.0
+```
+
+这个脚本会自动更新：
+
+- `package.json`
+- `manifest.json`
+- `versions.json`
+- `docs/releases/<version>.md`
+
 ### 生产构建
 
 ```bash
@@ -39,11 +66,16 @@ npm.cmd run build
 
 更完整的打包和发布说明见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 
+项目设计方案见 [docs/DESIGN.md](docs/DESIGN.md)。
+
 ## Demo
 
 仓库内置了一个可直接使用的演示目录：`demo/`
 
+同时，仓库根目录下也提供了一套默认项目数据：`Projects/obsidian-project-hub/`
+
 - 将 `demo/Projects` 复制到 Vault 根目录后即可直接使用
+- 当前仓库作为 Vault 使用时，会优先显示 `Projects/obsidian-project-hub` 这个默认项目
 - Demo 只保留一个项目，项目名称固定为 `demo`
 - 打开插件面板后，可以立刻看到版本、运维任务、任务看板、版本中心、Dashboard 图表和 Roadmap
 - Demo 使用说明见 [demo/README.md](demo/README.md)
@@ -68,6 +100,8 @@ Projects/
 │   │   ├── 技术方案.md
 │   │   ├── 会议记录.md
 ```
+
+如果你的 Vault 里按“分组/项目”方式存放，也支持按第二层项目目录自动归属。例如：`工作台/DataSync/Versions/V3.5.0.md` 会自动识别为 `DataSync` 项目。
 
 ### 数据约定
 
@@ -214,5 +248,7 @@ type: roadmap
 - `package.json`
 - `manifest.json`
 - `versions.json`
+
+并且每个版本都必须新增对应的发布记录：`docs/releases/<version>.md`。可以先执行 `npm.cmd run version:bump -- <version>` 生成模板，再执行 `npm.cmd run release` 完成构建、校验和部署。
 
 具体检查项见 [docs/RELEASE.md](docs/RELEASE.md)。

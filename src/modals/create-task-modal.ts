@@ -13,12 +13,14 @@ export interface CreateTaskInput {
 interface CreateTaskModalOptions {
   app: App;
   project: string;
+  projectPath: string;
   versions: VersionRecord[];
   onCreated?: () => Promise<void> | void;
 }
 
 export class CreateTaskModal extends Modal {
   private readonly project: string;
+  private readonly projectPath: string;
   private readonly versions: VersionRecord[];
   private readonly onCreated?: () => Promise<void> | void;
 
@@ -31,6 +33,7 @@ export class CreateTaskModal extends Modal {
   constructor(options: CreateTaskModalOptions) {
     super(options.app);
     this.project = options.project;
+    this.projectPath = normalizePath(options.projectPath);
     this.versions = options.versions;
     this.onCreated = options.onCreated;
   }
@@ -141,8 +144,8 @@ export class CreateTaskModal extends Modal {
 
   private async createTaskFile(input: CreateTaskInput): Promise<string> {
     const filePath = input.version
-      ? normalizePath(`Projects/${input.project}/Versions/V${input.version}.md`)
-      : normalizePath(`Projects/${input.project}/Ops/Ops.md`);
+      ? normalizePath(`${this.projectPath}/Versions/V${input.version}.md`)
+      : normalizePath(`${this.projectPath}/Ops/Ops.md`);
 
     await ensureFolder(this.app, normalizePath(filePath.split("/").slice(0, -1).join("/")));
 
@@ -158,7 +161,7 @@ export class CreateTaskModal extends Modal {
 
     const initialContent = input.version
       ? buildVersionFile(input.project, input.version, taskLine)
-      : buildOpsFile(taskLine);
+      : buildOpsFile(input.project, taskLine);
     await this.app.vault.create(filePath, initialContent);
     return filePath;
   }
@@ -213,10 +216,11 @@ function buildVersionFile(project: string, version: string, taskLine: string): s
   ].join("\n");
 }
 
-function buildOpsFile(taskLine: string): string {
+function buildOpsFile(project: string, taskLine: string): string {
   return [
     "---",
     "type: ops",
+    `project: ${project}`,
     "---",
     "",
     "# 运维任务",

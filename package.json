@@ -5,7 +5,11 @@
   "description": "Obsidian plugin for project, version, and task management with Markdown and YAML.",
   "scripts": {
     "build": "node esbuild.config.mjs production",
-    "dev": "node esbuild.config.mjs"
+    "dev": "node esbuild.config.mjs",
+    "version:bump": "node scripts/bump-version.mjs",
+    "deploy:obsidian": "node scripts/deploy-obsidian.mjs",
+    "release:check": "node scripts/check-release.mjs",
+    "release": "npm run build && npm run release:check && npm run deploy:obsidian"
   },
   "devDependencies": {
     "@types/node": "^20.17.30",

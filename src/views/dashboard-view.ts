@@ -1,7 +1,7 @@
-import { ItemView, Menu, Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { ItemView, Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { ProjectStore } from "../core/store";
 import { CreateTaskModal } from "../modals/create-task-modal";
-import { BurndownPoint, ProjectRecord, RoadmapEntry, TaskRecord, VersionProgress } from "../types";
+import { BurndownPoint, ProjectRecord, TaskRecord, VersionRecord } from "../types";
 
 export const PROJECT_HUB_VIEW_TYPE = "project-hub-dashboard";
 
@@ -13,6 +13,15 @@ export class ProjectHubDashboardView extends ItemView {
   private selectedProject: string | null = null;
   private selectedVersion: string | null = null;
   private draggingTaskId: string | null = null;
+  private readonly expandedVersionGroups = new Set<string>();
+  private headerEl: HTMLElement | null = null;
+  private summaryEl: HTMLElement | null = null;
+  private boardEl: HTMLElement | null = null;
+  private kanbanEl: HTMLElement | null = null;
+  private pendingProjectRowRefresh: string | null = null;
+  private pendingSelection: { project: string | null; version: string | null } | null = null;
+  private preferredSelection: { project: string | null; version: string | null } | null = null;
+  private suppressRenderCount = 0;
   private unsubscribe: (() => void) | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: Plugin, store: ProjectStore) {
@@ -35,6 +44,18 @@ export class ProjectHubDashboardView extends ItemView {
 
   async onOpen(): Promise<void> {
     this.unsubscribe = this.store.subscribe(() => {
+      if (this.suppressRenderCount > 0) {
+        this.suppressRenderCount -= 1;
+        return;
+      }
+
+      if (this.pendingProjectRowRefresh) {
+        const project = this.pendingProjectRowRefresh;
+        this.pendingProjectRowRefresh = null;
+        this.renderPartialUpdate(project);
+        return;
+      }
+
       this.render();
     });
     this.render();
@@ -51,9 +72,16 @@ export class ProjectHubDashboardView extends ItemView {
       return;
     }
 
+    const projectRecord = this.store.getProjects().find((item) => item.project === this.selectedProject);
+    if (!projectRecord) {
+      new Notice("未找到项目目录，无法创建任务");
+      return;
+    }
+
     new CreateTaskModal({
       app: this.app,
       project: this.selectedProject,
+      projectPath: projectRecord.projectPath,
       versions: this.store.getVersions(this.selectedProject),
       onCreated: async () => {
         await this.store.rebuild();
@@ -63,66 +91,153 @@ export class ProjectHubDashboardView extends ItemView {
 
   private render(): void {
     const container = this.containerEl.children[1] as HTMLElement;
-    container.empty();
     container.addClass("project-hub-view");
+    this.ensureLayout(container);
+
+    this.renderHeader();
+    this.renderSections();
+  }
+
+  private renderHeader(): void {
+    if (!this.headerEl) {
+      return;
+    }
+
+    this.renderDashboardHeader(this.headerEl);
+  }
+
+  private renderPartialUpdate(projectName: string): void {
+    if (!this.summaryEl || !this.boardEl || !this.kanbanEl) {
+      this.render();
+      return;
+    }
 
     const projects = this.store.getProjects();
-    if (!this.selectedProject && projects.length > 0) {
-      this.selectedProject = projects[0].project;
-    }
-    if (this.selectedProject && !projects.some((item) => item.project === this.selectedProject)) {
-      this.selectedProject = projects[0]?.project ?? null;
-    }
+    const versions = this.store.getVersions();
+    const tasks = this.store.getTasks();
+    this.restorePendingSelection(projects, versions);
+    this.syncSelection(projects, versions);
 
-    this.renderHeader(container, projects);
+    this.renderGlobalStats(this.summaryEl, projects, versions, tasks);
+    this.refreshProjectBoardRow(projectName, projects, versions, tasks);
 
-    if (!this.selectedProject) {
-      container.createEl("div", {
+    if (projects.length === 0) {
+      this.kanbanEl.empty();
+      this.kanbanEl.createEl("div", {
         cls: "project-hub-empty-state",
         text: "未找到项目数据。先创建带有 type: project 的 Markdown 文件。"
       });
       return;
     }
 
-    const versionProgress = this.store.getVersionProgress(this.selectedProject);
-    if (!this.selectedVersion && versionProgress.length > 0) {
-      this.selectedVersion = versionProgress[0].version.version;
-    }
-    if (this.selectedVersion && !versionProgress.some((item) => item.version.version === this.selectedVersion)) {
-      this.selectedVersion = versionProgress[0]?.version.version ?? null;
-    }
-
-    this.renderStats(container, this.selectedProject);
-    this.renderCharts(container, this.selectedProject);
-    this.renderKanban(container, this.selectedProject);
-    this.renderVersionCenter(container, versionProgress);
-    this.renderRoadmap(container, this.selectedProject);
+    this.renderTaskKanban(this.kanbanEl, projects, versions);
   }
 
-  private renderHeader(container: HTMLElement, projects: ProjectRecord[]): void {
-    const header = container.createDiv({ cls: "project-hub-header" });
-    const titleWrap = header.createDiv();
-    titleWrap.createEl("h2", { text: "Project Dashboard" });
-    titleWrap.createEl("p", {
-      cls: "project-hub-subtitle",
-      text: "任务、版本、报表、路线图统一管理"
-    });
-
-    const actions = header.createDiv({ cls: "project-hub-header-actions" });
-    const selectorWrap = actions.createDiv({ cls: "project-hub-selector" });
-    selectorWrap.createEl("label", { cls: "project-hub-inline-label", text: "项目" });
-    const select = selectorWrap.createEl("select");
-    select.createEl("option", { value: "", text: "选择项目" });
-    for (const project of projects) {
-      select.createEl("option", { value: project.project, text: project.project });
+  private renderSections(): void {
+    if (!this.summaryEl || !this.boardEl || !this.kanbanEl) {
+      return;
     }
-    select.value = this.selectedProject ?? "";
-    select.addEventListener("change", () => {
-      this.selectedProject = select.value || null;
+
+    const projects = this.store.getProjects();
+    const versions = this.store.getVersions();
+    const tasks = this.store.getTasks();
+
+    this.restorePendingSelection(projects, versions);
+    this.syncSelection(projects, versions);
+    this.renderGlobalStats(this.summaryEl, projects, versions, tasks);
+    this.renderProjectVersionBoard(this.boardEl, projects, versions, tasks);
+
+    if (projects.length === 0) {
+      this.kanbanEl.empty();
+      this.kanbanEl.createEl("div", {
+        cls: "project-hub-empty-state",
+        text: "未找到项目数据。先创建带有 type: project 的 Markdown 文件。"
+      });
+      return;
+    }
+
+    this.renderTaskKanban(this.kanbanEl, projects, versions);
+  }
+
+  private ensureLayout(container: HTMLElement): void {
+    const hostsMissing = !this.headerEl || !this.summaryEl || !this.boardEl || !this.kanbanEl;
+    const hostsDetached = Boolean(
+      this.headerEl && this.summaryEl && this.boardEl && this.kanbanEl
+      && (!container.contains(this.headerEl)
+        || !container.contains(this.summaryEl)
+        || !container.contains(this.boardEl)
+        || !container.contains(this.kanbanEl))
+    );
+
+    if (!hostsMissing && !hostsDetached) {
+      return;
+    }
+
+    container.empty();
+    this.headerEl = container.createDiv({ cls: "project-hub-header-host" });
+    this.summaryEl = container.createDiv({ cls: "project-hub-summary-host" });
+    this.boardEl = container.createDiv({ cls: "project-hub-board-host" });
+    this.kanbanEl = container.createDiv({ cls: "project-hub-kanban-host" });
+  }
+
+  private restorePendingSelection(projects: ProjectRecord[], versions: VersionRecord[]): void {
+    if (!this.pendingSelection) {
+      return;
+    }
+
+    const { project, version } = this.pendingSelection;
+    this.pendingSelection = null;
+
+    if (project && projects.some((item) => item.project === project)) {
+      this.selectedProject = project;
+      if (version && versions.some((item) => item.project === project && item.version === version)) {
+        this.selectedVersion = version;
+      }
+      this.preferredSelection = { project, version };
+    }
+  }
+
+  private syncSelection(projects: ProjectRecord[], versions: VersionRecord[]): void {
+    if (projects.length === 0) {
+      this.selectedProject = null;
       this.selectedVersion = null;
-      this.render();
+      return;
+    }
+
+    if (this.preferredSelection?.project && projects.some((project) => project.project === this.preferredSelection.project)) {
+      this.selectedProject = this.preferredSelection.project;
+    }
+
+    const sortedProjects = this.sortProjects(projects, versions);
+    if (!this.selectedProject || !projects.some((project) => project.project === this.selectedProject)) {
+      this.selectedProject = sortedProjects[0]?.project ?? null;
+    }
+
+    const projectVersions = this.getSortedVersionsForProject(versions, this.selectedProject);
+    if (
+      this.preferredSelection?.project === this.selectedProject
+      && this.preferredSelection.version
+      && projectVersions.some((version) => version.version === this.preferredSelection?.version)
+    ) {
+      this.selectedVersion = this.preferredSelection.version;
+      return;
+    }
+
+    if (!this.selectedVersion || !projectVersions.some((version) => version.version === this.selectedVersion)) {
+      this.selectedVersion = projectVersions[0]?.version ?? null;
+    }
+  }
+
+  private renderDashboardHeader(container: HTMLElement): void {
+    container.empty();
+    const header = container.createDiv({ cls: "project-hub-dashboard-header" });
+    const titleWrap = header.createDiv({ cls: "project-hub-dashboard-title-wrap" });
+    titleWrap.createEl("h1", { text: "Project Hub Dashboard" });
+    titleWrap.createEl("p", {
+      text: "一屏看全局 · 一屏管执行 | 项目行式版本看板 + 版本任务看板"
     });
 
+    const actions = header.createDiv({ cls: "project-hub-dashboard-actions" });
     const createButton = actions.createEl("button", { cls: "mod-cta", text: "快速新建任务" });
     createButton.addEventListener("click", async () => {
       await this.openQuickCreateTask();
@@ -135,143 +250,277 @@ export class ProjectHubDashboardView extends ItemView {
     });
   }
 
-  private renderStats(container: HTMLElement, project: string): void {
-    const stats = this.store.getStats(project);
-    const grid = container.createDiv({ cls: "project-hub-stats-grid" });
+  private renderGlobalStats(container: HTMLElement, projects: ProjectRecord[], versions: VersionRecord[], tasks: TaskRecord[]): void {
+    container.empty();
+    const section = container.createDiv({ cls: "project-hub-dashboard-card project-hub-summary-card" });
+    const title = section.createDiv({ cls: "project-hub-section-title" });
+    title.setText("全局统计区 · All Projects Summary");
 
-    this.createStatCard(grid, "完成率", `${stats.completionRate}%`, "目标交付进度");
-    this.createStatCard(grid, "总任务", String(stats.totalTasks), "项目范围内的任务总数");
-    this.createStatCard(grid, "进行中", String(stats.doingTasks), "当前推进中的任务");
-    this.createStatCard(grid, "已延期", String(stats.overdueTasks), "截止已过且未完成");
-  }
+    const today = todayString();
+    const completedTasks = tasks.filter((task) => task.status === "done").length;
+    const doingTasks = tasks.filter((task) => task.status === "doing").length;
+    const delayedTasks = tasks.filter((task) => isTaskOverdue(task, today)).length;
+    const completionRate = tasks.length === 0 ? 0 : Math.round((completedTasks / tasks.length) * 100);
 
-  private createStatCard(container: HTMLElement, label: string, value: string, caption: string): void {
-    const card = container.createDiv({ cls: "project-hub-stat-card" });
-    card.createEl("span", { cls: "project-hub-stat-label", text: label });
-    card.createEl("strong", { cls: "project-hub-stat-value", text: value });
-    card.createEl("span", { cls: "project-hub-card-caption", text: caption });
-  }
-
-  private renderCharts(container: HTMLElement, project: string): void {
-    const section = container.createDiv({ cls: "project-hub-section" });
-    section.createEl("h3", { text: "Dashboard 图表" });
-
-    const grid = section.createDiv({ cls: "project-hub-chart-grid" });
-    this.renderStatusDistribution(grid, project);
-    this.renderOwnerBreakdown(grid, project);
-    this.renderBurndown(grid, project);
-  }
-
-  private renderStatusDistribution(container: HTMLElement, project: string): void {
-    const card = container.createDiv({ cls: "project-hub-chart-card" });
-    card.createEl("h4", { text: "状态分布" });
-    const items = this.store.getStatusBreakdown(project);
-    if (items.length === 0) {
-      card.createEl("p", { cls: "project-hub-empty-state small", text: "暂无任务数据" });
-      return;
+    const statsGrid = section.createDiv({ cls: "project-hub-summary-grid" });
+    for (const item of [
+      [String(projects.length), "项目数"],
+      [String(versions.length), "版本数"],
+      [String(tasks.length), "总任务数"],
+      [String(completedTasks), "完成任务"],
+      [String(doingTasks), "进行中任务"],
+      [String(delayedTasks), "延期任务"]
+    ]) {
+      const stat = statsGrid.createDiv({ cls: "project-hub-summary-item" });
+      if (item[1] === "延期任务") {
+        stat.addClass("is-warning");
+      }
+      stat.createDiv({ cls: "project-hub-summary-value", text: item[0] });
+      stat.createDiv({ cls: "project-hub-summary-label", text: item[1] });
     }
 
-    const total = items.reduce((sum, item) => sum + item.count, 0);
-    for (const item of items) {
-      const row = card.createDiv({ cls: "project-hub-bar-row" });
-      row.createEl("span", { cls: "project-hub-bar-label", text: item.status });
-      const track = row.createDiv({ cls: "project-hub-bar-track" });
-      track
-        .createDiv({ cls: `project-hub-bar-fill ${statusClass(item.status)}` })
-        .style.width = `${Math.max(8, Math.round((item.count / total) * 100))}%`;
-      row.createEl("span", { cls: "project-hub-bar-value", text: String(item.count) });
+    const trend = section.createDiv({ cls: "project-hub-summary-trend" });
+    const trendHeader = trend.createDiv({ cls: "project-hub-summary-trend-header" });
+    trendHeader.createSpan({ text: "任务完成趋势 (燃尽)" });
+    trendHeader.createSpan({ text: `${completionRate}% 完成` });
+
+    const progressBar = trend.createDiv({ cls: "project-hub-burnup-bar" });
+    progressBar.createDiv({ cls: "project-hub-burnup-fill" }).style.width = `${completionRate}%`;
+
+    const miniChart = trend.createDiv({ cls: "project-hub-mini-chart" });
+    for (const value of buildMiniTrendValues(this.store.getBurndown(), completionRate)) {
+      const bar = miniChart.createDiv({ cls: "project-hub-mini-chart-bar" });
+      bar.style.height = `${Math.min(100, Math.max(14, Math.round(value)))}%`;
     }
   }
 
-  private renderOwnerBreakdown(container: HTMLElement, project: string): void {
-    const card = container.createDiv({ cls: "project-hub-chart-card" });
-    card.createEl("h4", { text: "按人统计" });
-    const owners = this.store.getOwnerBreakdown(project);
-    if (owners.length === 0) {
-      card.createEl("p", { cls: "project-hub-empty-state small", text: "暂无负责人数据" });
-      return;
+  private renderProjectVersionBoard(container: HTMLElement, projects: ProjectRecord[], versions: VersionRecord[], tasks: TaskRecord[]): void {
+    container.empty();
+    const section = container.createDiv({ cls: "project-hub-dashboard-card project-hub-board-card" });
+    const title = section.createDiv({ cls: "project-hub-section-title" });
+    title.setText("项目 & 版本状态看板 (Project Version Board) | 按版本总数排序 | 版本>3个时折叠");
+
+    const boardRoot = section.createDiv({ cls: "project-hub-version-grid-container" });
+    const grid = boardRoot.createDiv({ cls: "project-hub-version-grid" });
+
+    const projectHeader = grid.createDiv({ cls: "project-hub-grid-header project-hub-grid-header-multiline" });
+    projectHeader.createDiv({ cls: "project-hub-grid-header-line", text: "项目" });
+    projectHeader.createDiv({ cls: "project-hub-grid-header-line", text: "版本总数" });
+    for (const headerText of ["Todo", "Doing", "Done"]) {
+      grid.createDiv({ cls: "project-hub-grid-header", text: headerText });
     }
 
-    for (const owner of owners.slice(0, 6)) {
-      const row = card.createDiv({ cls: "project-hub-owner-row" });
-      const label = row.createDiv({ cls: "project-hub-owner-header" });
-      label.createEl("span", { text: owner.owner });
-      label.createEl("span", { text: `${owner.done}/${owner.total} 完成` });
-      const track = row.createDiv({ cls: "project-hub-bar-track" });
-      track.createDiv({ cls: "project-hub-bar-fill is-owner" }).style.width = `${owner.total === 0 ? 0 : Math.round((owner.done / owner.total) * 100)}%`;
+    for (const project of this.sortProjects(projects, versions)) {
+      this.renderProjectBoardRow(grid, project, versions, tasks);
     }
   }
 
-  private renderBurndown(container: HTMLElement, project: string): void {
-    const card = container.createDiv({ cls: "project-hub-chart-card project-hub-chart-card-wide" });
-    card.createEl("h4", { text: "燃尽图" });
-    card.createEl("p", {
-      cls: "project-hub-card-caption",
-      text: "实际线基于已完成任务文件的最近修改时间估算"
+  private renderProjectBoardRow(
+    grid: HTMLElement,
+    project: ProjectRecord,
+    versions: VersionRecord[],
+    tasks: TaskRecord[]
+  ): HTMLElement {
+    const row = grid.createDiv({ cls: "project-hub-grid-row" });
+    row.dataset.project = project.project;
+
+    const projectVersions = versions.filter((version) => version.project === project.project);
+    const projectCell = row.createDiv({ cls: "project-hub-grid-cell project-hub-project-name-cell" });
+    projectCell.createDiv({ cls: "project-hub-project-name", text: project.project });
+    projectCell.createSpan({
+      cls: "project-hub-project-badge",
+      text: `版本总数：${projectVersions.length}`
     });
 
-    const points = this.store.getBurndown(project);
-    if (points.length < 2) {
-      card.createEl("p", { cls: "project-hub-empty-state small", text: "数据不足，无法绘制燃尽图" });
+    for (const status of ["todo", "doing", "done"] as const) {
+      const cell = row.createDiv({ cls: "project-hub-grid-cell" });
+      this.renderVersionGroup(cell, project.project, status, projectVersions, tasks);
+    }
+
+    return row;
+  }
+
+  private refreshProjectBoardRow(
+    projectName: string,
+    projects: ProjectRecord[],
+    versions: VersionRecord[],
+    tasks: TaskRecord[]
+  ): void {
+    if (!this.boardEl) {
       return;
     }
 
-    this.renderBurndownSvg(card, points);
-  }
-
-  private renderBurndownSvg(container: HTMLElement, points: BurndownPoint[]): void {
-    const width = 640;
-    const height = 220;
-    const padding = 24;
-    const maxValue = Math.max(...points.map((point) => Math.max(point.remaining, point.idealRemaining)), 1);
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-    svg.classList.add("project-hub-burndown-svg");
-
-    for (let index = 0; index < 4; index += 1) {
-      const y = padding + ((height - padding * 2) / 3) * index;
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", String(padding));
-      line.setAttribute("x2", String(width - padding));
-      line.setAttribute("y1", String(y));
-      line.setAttribute("y2", String(y));
-      line.setAttribute("class", "project-hub-grid-line");
-      svg.appendChild(line);
+    const grid = this.boardEl.querySelector(".project-hub-version-grid") as HTMLElement | null;
+    if (!grid) {
+      this.renderProjectVersionBoard(this.boardEl, projects, versions, tasks);
+      return;
     }
 
-    const actualPolyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
-    actualPolyline.setAttribute("fill", "none");
-    actualPolyline.setAttribute("class", "project-hub-line-actual");
-    actualPolyline.setAttribute("points", toPolyline(points, width, height, padding, maxValue, "remaining"));
-    svg.appendChild(actualPolyline);
+    const existingRows = Array.from(grid.querySelectorAll<HTMLElement>(".project-hub-grid-row"));
+    const targetRow = existingRows.find((row) => row.dataset.project === projectName);
+    const project = projects.find((item) => item.project === projectName);
+    if (!project) {
+      targetRow?.remove();
+      return;
+    }
 
-    const idealPolyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
-    idealPolyline.setAttribute("fill", "none");
-    idealPolyline.setAttribute("class", "project-hub-line-ideal");
-    idealPolyline.setAttribute("points", toPolyline(points, width, height, padding, maxValue, "idealRemaining"));
-    svg.appendChild(idealPolyline);
+    if (!targetRow) {
+      this.renderProjectVersionBoard(this.boardEl, projects, versions, tasks);
+      return;
+    }
 
-    container.appendChild(svg);
-    const labels = container.createDiv({ cls: "project-hub-burndown-labels" });
-    labels.createSpan({ text: points[0].date });
-    labels.createSpan({ text: points[points.length - 1].date });
+    const nextSibling = targetRow.nextElementSibling;
+    targetRow.remove();
+
+    const newRow = this.renderProjectBoardRow(grid, project, versions, tasks);
+    if (nextSibling) {
+      grid.insertBefore(newRow, nextSibling);
+    }
   }
 
-  private renderKanban(container: HTMLElement, project: string): void {
-    const section = container.createDiv({ cls: "project-hub-section" });
-    const header = section.createDiv({ cls: "project-hub-section-header" });
-    header.createEl("h3", { text: "任务看板" });
-    header.createEl("p", { cls: "project-hub-card-caption", text: "支持拖拽卡片直接更新任务状态" });
+  private renderVersionGroup(
+    container: HTMLElement,
+    project: string,
+    status: "todo" | "doing" | "done",
+    versions: VersionRecord[],
+    tasks: TaskRecord[]
+  ): void {
+    const list = container.createDiv({ cls: "project-hub-version-cards-list" });
+    const filtered = versions
+      .filter((version) => normalizeVersionBoardStatus(version.status) === status)
+      .sort(compareVersionRecordsDesc);
 
-    const tasks = this.store.getTasks(project);
-    const columns = section.createDiv({ cls: "project-hub-task-columns" });
-    this.renderTaskColumn(columns, "todo", "Todo", tasks.filter((task) => task.status === "todo"), true);
-    this.renderTaskColumn(columns, "doing", "Doing", tasks.filter((task) => task.status === "doing"), true);
-    this.renderTaskColumn(columns, "done", "Done", tasks.filter((task) => task.status === "done"), true);
+    if (filtered.length === 0) {
+      list.createDiv({ cls: "project-hub-version-empty", text: "—" });
+      return;
+    }
 
-    const otherTasks = tasks.filter((task) => !["todo", "doing", "done"].includes(task.status));
-    if (otherTasks.length > 0) {
-      this.renderTaskColumn(columns, "other", "Other", otherTasks, false);
+    const groupKey = `${project}::${status}`;
+    const expanded = this.expandedVersionGroups.has(groupKey);
+    const visibleVersions = expanded ? filtered : filtered.slice(0, 3);
+
+    for (const version of visibleVersions) {
+      this.renderVersionCard(list, version, tasks);
+    }
+
+    if (filtered.length > 3) {
+      const toggle = list.createEl("button", { cls: "project-hub-expand-btn" });
+      toggle.setText(expanded ? "收起 ▲" : `+ ${filtered.length - 3} 更多`);
+      toggle.addEventListener("click", () => {
+        if (expanded) {
+          this.expandedVersionGroups.delete(groupKey);
+        } else {
+          this.expandedVersionGroups.add(groupKey);
+        }
+        this.renderSections();
+      });
+    }
+  }
+
+  private renderVersionCard(container: HTMLElement, version: VersionRecord, tasks: TaskRecord[]): void {
+    const versionTasks = tasks.filter((task) => task.project === version.project && task.version === version.version);
+    const doneCount = versionTasks.filter((task) => task.status === "done").length;
+    const progress = versionTasks.length === 0 ? 0 : Math.round((doneCount / versionTasks.length) * 100);
+    const overdue = versionTasks.filter((task) => isTaskOverdue(task, todayString())).length;
+    const assignees = [...new Set(versionTasks.map((task) => task.owner).filter((owner): owner is string => Boolean(owner)))];
+
+    const card = container.createDiv({ cls: "project-hub-version-card" });
+    if (this.selectedProject === version.project && this.selectedVersion === version.version) {
+      card.addClass("is-active");
+    }
+
+    card.createDiv({ cls: "project-hub-version-name", text: version.version });
+    card.createDiv({
+      cls: "project-hub-version-date",
+      text: `${formatShortDate(version.start)} ~ ${formatShortDate(version.end)}`
+    });
+    card.createDiv({
+      cls: "project-hub-version-summary",
+      text: overdue > 0 ? `${progress}% · 延期 ${overdue}` : `${progress}% · 按期`
+    });
+
+    card.setAttr(
+      "title",
+      `任务数: ${versionTasks.length}\n负责人: ${assignees.join(", ") || "未分配"}\n双击打开版本文件`
+    );
+
+    card.addEventListener("click", () => {
+      this.selectedProject = version.project;
+      this.selectedVersion = version.version;
+      this.preferredSelection = {
+        project: this.selectedProject,
+        version: this.selectedVersion
+      };
+      this.renderSections();
+    });
+
+    card.addEventListener("dblclick", async () => {
+      const file = this.plugin.app.vault.getAbstractFileByPath(version.filePath);
+      if (file instanceof TFile) {
+        await this.plugin.app.workspace.getLeaf(true).openFile(file);
+      }
+    });
+  }
+
+  private renderTaskKanban(container: HTMLElement, projects: ProjectRecord[], versions: VersionRecord[]): void {
+    container.empty();
+    const section = container.createDiv({ cls: "project-hub-task-kanban" });
+
+    const title = section.createDiv({ cls: "project-hub-section-title" });
+    title.setText("版本任务看板 · Version Task Kanban");
+
+    const filters = section.createDiv({ cls: "project-hub-filters" });
+    const projectGroup = filters.createDiv({ cls: "project-hub-filter-group" });
+    projectGroup.createEl("label", { text: "Project:" });
+    const projectSelect = projectGroup.createEl("select");
+
+    for (const project of this.sortProjects(projects, versions)) {
+      projectSelect.createEl("option", { value: project.project, text: project.project });
+    }
+    projectSelect.value = this.selectedProject ?? "";
+    projectSelect.addEventListener("change", () => {
+      this.selectedProject = projectSelect.value || null;
+      const projectVersions = this.getSortedVersionsForProject(versions, this.selectedProject);
+      this.selectedVersion = projectVersions[0]?.version ?? null;
+      this.preferredSelection = {
+        project: this.selectedProject,
+        version: this.selectedVersion
+      };
+      this.renderSections();
+    });
+
+    const versionGroup = filters.createDiv({ cls: "project-hub-filter-group" });
+    versionGroup.createEl("label", { text: "Version:" });
+    const versionSelect = versionGroup.createEl("select");
+
+    for (const version of this.getSortedVersionsForProject(versions, this.selectedProject)) {
+      versionSelect.createEl("option", { value: version.version, text: version.version });
+    }
+    versionSelect.value = this.selectedVersion ?? "";
+    versionSelect.addEventListener("change", () => {
+      this.selectedVersion = versionSelect.value || null;
+      this.preferredSelection = {
+        project: this.selectedProject,
+        version: this.selectedVersion
+      };
+      this.renderSections();
+    });
+
+    const selectedTasks = this.store.getTasks(this.selectedProject ?? undefined).filter((task) => {
+      if (!this.selectedVersion) {
+        return false;
+      }
+      return task.version === this.selectedVersion;
+    });
+
+    const columns = section.createDiv({ cls: "project-hub-kanban-columns" });
+    this.renderTaskColumn(columns, "todo", "TODO", selectedTasks.filter((task) => task.status === "todo"), true);
+    this.renderTaskColumn(columns, "doing", "DOING", selectedTasks.filter((task) => task.status === "doing"), true);
+    this.renderTaskColumn(columns, "done", "DONE", selectedTasks.filter((task) => task.status === "done"), true);
+
+    if (!this.selectedVersion) {
+      columns.empty();
+      columns.createDiv({ cls: "project-hub-empty-state", text: "当前项目没有可用版本，请先创建版本文件。" });
     }
   }
 
@@ -282,7 +531,8 @@ export class ProjectHubDashboardView extends ItemView {
     tasks: TaskRecord[],
     droppable: boolean
   ): void {
-    const column = container.createDiv({ cls: "project-hub-task-column" });
+    const column = container.createDiv({ cls: "project-hub-kanban-col" });
+    column.dataset.status = status;
     if (droppable) {
       column.addClass("is-droppable");
       column.addEventListener("dragover", (event) => {
@@ -299,12 +549,15 @@ export class ProjectHubDashboardView extends ItemView {
       });
     }
 
-    const header = column.createDiv({ cls: "project-hub-task-column-header" });
-    header.createEl("span", { text: label });
-    header.createEl("span", { cls: "project-hub-count-badge", text: String(tasks.length) });
+    const header = column.createEl("h3", { cls: "project-hub-kanban-col-title" });
+    header.createSpan({ text: label });
+    header.createSpan({ cls: "project-hub-kanban-col-count", text: String(tasks.length) });
+
+    const list = column.createDiv({ cls: "project-hub-task-list" });
+    list.dataset.status = status;
 
     if (tasks.length === 0) {
-      column.createEl("div", {
+      list.createEl("div", {
         cls: "project-hub-empty-state small",
         text: droppable ? `拖拽任务到 ${label}` : `${label} 列为空`
       });
@@ -312,17 +565,20 @@ export class ProjectHubDashboardView extends ItemView {
     }
 
     for (const task of tasks) {
-      this.renderTaskCard(column, task, status as StatusOption, droppable);
+      this.renderTaskCard(list, task, droppable);
     }
   }
 
   private renderTaskCard(
     container: HTMLElement,
     task: TaskRecord,
-    currentStatus: StatusOption,
     draggable: boolean
   ): void {
     const card = container.createDiv({ cls: "project-hub-task-card" });
+    card.dataset.taskId = task.id;
+    card.dataset.status = task.status;
+    card.style.borderLeftColor = task.priority === "high" ? "#dc2626" : "#e2e8f0";
+
     if (draggable) {
       card.setAttribute("draggable", "true");
       card.addEventListener("dragstart", (event) => {
@@ -340,139 +596,99 @@ export class ProjectHubDashboardView extends ItemView {
       });
     }
 
-    const top = card.createDiv({ cls: "project-hub-task-card-top" });
-    top.createEl("div", { cls: "project-hub-task-title", text: task.text });
-    top.createDiv({ cls: `project-hub-priority-badge ${priorityClass(task.priority)}`, text: task.priority ?? "medium" });
+    card.createDiv({
+      cls: "project-hub-task-title",
+      text: task.text
+    });
 
-    const meta = card.createDiv({ cls: "project-hub-task-meta" });
-    meta.createSpan({ text: task.version ? `版本 ${task.version}` : "运维任务" });
-    meta.createSpan({ text: task.owner ? `负责人 ${task.owner}` : "未分配" });
-    meta.createSpan({ text: task.sourceType === "ops-task" ? "来源 Ops" : `来源 ${task.source}` });
-    if (task.due) {
-      meta.createSpan({ text: `截止 ${task.due}` });
-    }
+    const meta = card.createDiv({
+      cls: "project-hub-task-meta",
+      text: `@${task.owner ?? "未分配"} · ${task.due ?? "未设置"}`
+    });
+    meta.setAttr("title", task.sourceType === "ops-task" ? "来源 Ops" : `来源 ${task.source}`);
 
-    const actions = card.createDiv({ cls: "project-hub-task-actions" });
-    const openButton = actions.createEl("button", { text: "打开" });
-    openButton.addEventListener("click", async () => {
+    card.setAttr("title", "拖拽可变更状态，双击打开任务源文件");
+    card.addEventListener("dblclick", async () => {
       await this.openTaskFile(task);
     });
+  }
 
-    const moveButton = actions.createEl("button", { text: "修改状态" });
-    moveButton.addEventListener("click", (event) => {
-      const menu = new Menu();
-      for (const status of ["todo", "doing", "done"]) {
-        menu.addItem((item) => {
-          item
-            .setTitle(status)
-            .setChecked(status === currentStatus)
-            .onClick(async () => {
-              await this.updateTaskStatus(task, status);
-            });
+  private applyTaskMove(taskId: string, nextStatus: string): void {
+    if (!this.kanbanEl) {
+      return;
+    }
+
+    const card = this.kanbanEl.querySelector<HTMLElement>(`.project-hub-task-card[data-task-id="${cssEscape(taskId)}"]`);
+    if (!card) {
+      return;
+    }
+
+    const sourceList = card.parentElement as HTMLElement | null;
+    const targetList = this.kanbanEl.querySelector<HTMLElement>(`.project-hub-task-list[data-status="${cssEscape(nextStatus)}"]`);
+    if (!sourceList || !targetList || sourceList === targetList) {
+      return;
+    }
+
+    const sourceStatus = sourceList.dataset.status ?? "";
+    this.removeEmptyState(targetList);
+    targetList.appendChild(card);
+    card.dataset.status = nextStatus;
+
+    this.refreshTaskColumnState(sourceList, sourceStatus);
+    this.refreshTaskColumnState(targetList, nextStatus);
+  }
+
+  private refreshTaskColumnState(list: HTMLElement, status: string): void {
+    const column = list.closest(".project-hub-kanban-col") as HTMLElement | null;
+    if (!column) {
+      return;
+    }
+
+    const count = list.querySelectorAll(":scope > .project-hub-task-card").length;
+    const countEl = column.querySelector<HTMLElement>(".project-hub-kanban-col-count");
+    if (countEl) {
+      countEl.setText(String(count));
+    }
+
+    const empty = list.querySelector<HTMLElement>(":scope > .project-hub-empty-state");
+    if (count === 0) {
+      if (!empty) {
+        list.createEl("div", {
+          cls: "project-hub-empty-state small",
+          text: `拖拽任务到 ${status.toUpperCase()}`
         });
       }
-      menu.showAtMouseEvent(event);
-    });
-  }
-
-  private renderVersionCenter(container: HTMLElement, versions: VersionProgress[]): void {
-    const section = container.createDiv({ cls: "project-hub-section" });
-    section.createEl("h3", { text: "版本中心" });
-    if (versions.length === 0) {
-      section.createEl("p", { cls: "project-hub-empty-state", text: "当前项目还没有版本文件。" });
       return;
     }
 
-    const layout = section.createDiv({ cls: "project-hub-version-center" });
-    const list = layout.createDiv({ cls: "project-hub-version-list" });
-    const detail = layout.createDiv({ cls: "project-hub-version-detail" });
+    empty?.remove();
+  }
 
-    for (const item of versions) {
-      const card = list.createDiv({ cls: "project-hub-version-item" });
-      if (item.version.version === this.selectedVersion) {
-        card.addClass("is-active");
+  private removeEmptyState(list: HTMLElement): void {
+    const empty = list.querySelector<HTMLElement>(":scope > .project-hub-empty-state");
+    empty?.remove();
+  }
+
+  private sortProjects(projects: ProjectRecord[], versions: VersionRecord[]): ProjectRecord[] {
+    const order = new Map(projects.map((project, index) => [project.project, index]));
+    const counts = new Map<string, number>();
+    for (const version of versions) {
+      counts.set(version.project, (counts.get(version.project) ?? 0) + 1);
+    }
+
+    return [...projects].sort((left, right) => {
+      const countDiff = (counts.get(right.project) ?? 0) - (counts.get(left.project) ?? 0);
+      if (countDiff !== 0) {
+        return countDiff;
       }
-      card.addEventListener("click", () => {
-        this.selectedVersion = item.version.version;
-        this.render();
-      });
-      card.createEl("div", { cls: "project-hub-version-title", text: item.version.version });
-      card.createEl("div", { cls: "project-hub-version-meta", text: `${item.doneTasks}/${item.totalTasks} 已完成` });
-      const bar = card.createDiv({ cls: "project-hub-progress-bar" });
-      bar.createDiv({ cls: "project-hub-progress-bar-fill" }).style.width = `${item.completionRate}%`;
-    }
-
-    const current = versions.find((item) => item.version.version === this.selectedVersion) ?? versions[0];
-    detail.createEl("h4", { text: current.version.version });
-    detail.createEl("p", {
-      cls: "project-hub-card-caption",
-      text: `状态 ${current.version.status ?? "unknown"} · 发布日期 ${current.version.releaseDate ?? "未设置"}`
+      return (order.get(left.project) ?? 0) - (order.get(right.project) ?? 0);
     });
-
-    const metrics = detail.createDiv({ cls: "project-hub-version-metrics" });
-    for (const entry of [
-      ["完成率", `${current.completionRate}%`],
-      ["Todo", String(current.todoTasks)],
-      ["Doing", String(current.doingTasks)],
-      ["Done", String(current.doneTasks)],
-      ["Overdue", String(current.overdueTasks)]
-    ]) {
-      const metric = metrics.createDiv({ cls: "project-hub-mini-card" });
-      metric.createEl("span", { text: entry[0] });
-      metric.createEl("strong", { text: entry[1] });
-    }
-
-    const tasks = this.store
-      .getTasks(this.selectedProject ?? undefined)
-      .filter((task) => task.version === current.version.version);
-    const taskList = detail.createDiv({ cls: "project-hub-version-task-list" });
-    for (const task of tasks.slice(0, 8)) {
-      const row = taskList.createDiv({ cls: "project-hub-inline-task" });
-      row.createEl("span", { text: task.text });
-      const tags = row.createDiv({ cls: "project-hub-inline-task-tags" });
-      tags.createSpan({ text: task.status });
-      tags.createSpan({ text: task.owner ?? "未分配" });
-    }
-    if (tasks.length === 0) {
-      taskList.createEl("p", { cls: "project-hub-empty-state small", text: "该版本暂无任务" });
-    }
   }
 
-  private renderRoadmap(container: HTMLElement, project: string): void {
-    const section = container.createDiv({ cls: "project-hub-section" });
-    section.createEl("h3", { text: "Roadmap" });
-    const entries = this.store.getRoadmapEntries(project);
-    if (entries.length === 0) {
-      section.createEl("p", {
-        cls: "project-hub-empty-state",
-        text: "当前项目还没有可解析的 Roadmap 表格。"
-      });
-      return;
-    }
-
-    const minDate = entries[0].start;
-    const maxDate = entries.reduce((latest, item) => (item.end > latest ? item.end : latest), entries[0].end);
-    section.createDiv({ cls: "project-hub-roadmap-range", text: `${minDate} → ${maxDate}` });
-    const timeline = section.createDiv({ cls: "project-hub-roadmap" });
-    for (const entry of entries) {
-      this.renderRoadmapRow(timeline, entry, minDate, maxDate);
-    }
-  }
-
-  private renderRoadmapRow(container: HTMLElement, entry: RoadmapEntry, minDate: string, maxDate: string): void {
-    const row = container.createDiv({ cls: "project-hub-roadmap-row" });
-    const meta = row.createDiv({ cls: "project-hub-roadmap-meta" });
-    meta.createEl("strong", { text: entry.label });
-    meta.createEl("span", { text: entry.status });
-
-    const daysTotal = diffDays(minDate, maxDate) + 1;
-    const offsetDays = diffDays(minDate, entry.start);
-    const durationDays = Math.max(1, diffDays(entry.start, entry.end) + 1);
-    const track = row.createDiv({ cls: "project-hub-roadmap-track" });
-    const bar = track.createDiv({ cls: `project-hub-roadmap-bar ${roadmapStatusClass(entry.status)}` });
-    bar.style.marginLeft = `${(offsetDays / daysTotal) * 100}%`;
-    bar.style.width = `${Math.max(8, (durationDays / daysTotal) * 100)}%`;
-    bar.setText(`${entry.start} - ${entry.end}`);
+  private getSortedVersionsForProject(versions: VersionRecord[], project: string | null): VersionRecord[] {
+    return versions
+      .filter((version) => !project || version.project === project)
+      .sort(compareVersionRecordsDesc);
   }
 
   private async handleDrop(targetStatus: string): Promise<void> {
@@ -509,80 +725,119 @@ export class ProjectHubDashboardView extends ItemView {
     }
 
     const content = await this.plugin.app.vault.read(abstractFile);
-    const nextContent = updateChecklistTaskStatus(content, task, status);
+    let nextContent = updateChecklistTaskStatus(content, task, status);
+    if (task.sourceType === "version-task") {
+      nextContent = updateVersionStatusInFrontmatter(nextContent);
+    }
     if (nextContent === content) {
       new Notice("未找到任务行，无法更新任务状态");
       return;
     }
 
+    this.pendingSelection = {
+      project: this.selectedProject,
+      version: this.selectedVersion
+    };
+    this.preferredSelection = {
+      project: this.selectedProject,
+      version: this.selectedVersion
+    };
+    this.pendingProjectRowRefresh = null;
+    this.suppressRenderCount = 2;
     await this.plugin.app.vault.modify(abstractFile, nextContent);
+    await this.store.refreshFile(abstractFile);
+    this.applyDragUpdate(task.project, task.id, status);
     new Notice(`任务状态已更新为 ${status}`);
   }
+
+  private applyDragUpdate(projectName: string, taskId: string, status: string): void {
+    const projects = this.store.getProjects();
+    const versions = this.store.getVersions();
+    const tasks = this.store.getTasks();
+
+    this.restorePendingSelection(projects, versions);
+    this.syncSelection(projects, versions);
+
+    if (this.summaryEl) {
+      this.renderGlobalStats(this.summaryEl, projects, versions, tasks);
+    }
+    this.refreshProjectBoardRow(projectName, projects, versions, tasks);
+    this.applyTaskMove(taskId, status);
+  }
 }
 
-function toPolyline(
-  points: BurndownPoint[],
-  width: number,
-  height: number,
-  padding: number,
-  maxValue: number,
-  key: "remaining" | "idealRemaining"
-): string {
-  return points
-    .map((point, index) => {
-      const x = padding + ((width - padding * 2) * index) / Math.max(1, points.length - 1);
-      const y = height - padding - ((height - padding * 2) * point[key]) / maxValue;
-      return `${x},${y}`;
-    })
-    .join(" ");
+function normalizeVersionBoardStatus(status?: string): "todo" | "doing" | "done" {
+  const normalized = (status ?? "").trim().toLowerCase();
+  if (["doing", "developing", "active", "开发中"].includes(normalized)) {
+    return "doing";
+  }
+  if (["released", "done", "已发布"].includes(normalized)) {
+    return "done";
+  }
+  return "todo";
 }
 
-function diffDays(left: string, right: string): number {
-  const start = new Date(`${left}T00:00:00`);
-  const end = new Date(`${right}T00:00:00`);
-  return Math.round((end.getTime() - start.getTime()) / 86400000);
+function compareVersionRecordsDesc(left: VersionRecord, right: VersionRecord): number {
+  return compareVersionNamesDesc(left.version, right.version);
 }
 
-function statusClass(status: string): string {
-  const normalized = status.trim().toLowerCase();
-  if (normalized === "todo") {
-    return "is-todo";
+function compareVersionNamesDesc(left: string, right: string): number {
+  const leftParts = left.replace(/^[^\d]*/, "").split(".").map((part) => Number(part) || 0);
+  const rightParts = right.replace(/^[^\d]*/, "").split(".").map((part) => Number(part) || 0);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const diff = (rightParts[index] ?? 0) - (leftParts[index] ?? 0);
+    if (diff !== 0) {
+      return diff;
+    }
   }
-  if (normalized === "doing") {
-    return "is-doing";
-  }
-  if (normalized === "done") {
-    return "is-done";
-  }
-  return "is-neutral";
+  return right.localeCompare(left);
 }
 
-function priorityClass(priority?: string): string {
-  const normalized = priority?.trim().toLowerCase() ?? "medium";
-  if (["urgent", "critical"].includes(normalized)) {
-    return "is-urgent";
+function formatShortDate(value?: string): string {
+  if (!value) {
+    return "?";
   }
-  if (normalized === "high") {
-    return "is-high";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value.slice(5);
   }
-  if (normalized === "low") {
-    return "is-low";
-  }
-  return "is-medium";
+  return value;
 }
 
-function roadmapStatusClass(status: string): string {
-  const normalized = status.trim().toLowerCase();
-  if (["开发中", "developing", "doing", "active"].includes(normalized)) {
-    return "is-active";
+function todayString(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isTaskOverdue(task: TaskRecord, today: string): boolean {
+  return task.status !== "done" && Boolean(task.due) && task.due < today;
+}
+
+function buildMiniTrendValues(points: BurndownPoint[], completionRate: number): number[] {
+  if (points.length === 0) {
+    return [completionRate];
   }
-  if (["规划中", "planned", "todo"].includes(normalized)) {
-    return "is-planned";
+
+  const maxRemaining = Math.max(...points.map((point) => point.remaining), 1);
+  const completionValues = points.map((point) => 100 - Math.round((point.remaining / maxRemaining) * 100));
+  const sampleSize = Math.min(5, completionValues.length);
+  if (sampleSize === completionValues.length) {
+    return completionValues;
   }
-  if (["已发布", "released", "done"].includes(normalized)) {
-    return "is-done";
+
+  const sampled: number[] = [];
+  for (let index = 0; index < sampleSize; index += 1) {
+    const pointIndex = Math.round((index * (completionValues.length - 1)) / Math.max(1, sampleSize - 1));
+    sampled.push(completionValues[pointIndex]);
   }
-  return "is-neutral";
+  return sampled;
+}
+
+function cssEscape(value: string): string {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(value);
+  }
+
+  return value.replace(/([#.;?+*~':"!^$\[\]()=>|\/@])/g, "\\$1");
 }
 
 function updateChecklistTaskStatus(content: string, task: TaskRecord, status: string): string {
@@ -606,4 +861,71 @@ function updateChecklistTaskStatus(content: string, task: TaskRecord, status: st
   const nextText = status === "doing" ? `${rawText} 🚧` : rawText;
   lines[index] = `${match[1]}${nextMarker}${match[3]}${nextText}`;
   return lines.join("\n");
+}
+
+function updateVersionStatusInFrontmatter(content: string): string {
+  if (!content.startsWith("---")) {
+    return content;
+  }
+
+  const lines = content.split(/\r?\n/);
+  let frontmatterEnd = -1;
+  for (let index = 1; index < lines.length; index += 1) {
+    if (lines[index].trim() === "---") {
+      frontmatterEnd = index;
+      break;
+    }
+  }
+
+  if (frontmatterEnd === -1) {
+    return content;
+  }
+
+  const derivedStatus = deriveVersionStatusFromChecklist(lines.slice(frontmatterEnd + 1));
+  if (!derivedStatus) {
+    return content;
+  }
+
+  const statusIndex = lines.findIndex((line, index) => index > 0 && index < frontmatterEnd && /^status\s*:/i.test(line));
+  if (statusIndex !== -1) {
+    lines[statusIndex] = `status: ${derivedStatus}`;
+  } else {
+    lines.splice(frontmatterEnd, 0, `status: ${derivedStatus}`);
+  }
+
+  return lines.join("\n");
+}
+
+function deriveVersionStatusFromChecklist(lines: string[]): string | null {
+  let total = 0;
+  let done = 0;
+  let doing = 0;
+
+  for (const line of lines) {
+    const match = line.match(/^\s*-\s\[([ xX])\]\s+(.+)$/);
+    if (!match) {
+      continue;
+    }
+
+    total += 1;
+    const rawText = match[2].trim();
+    if (match[1].toLowerCase() === "x") {
+      done += 1;
+      continue;
+    }
+    if (rawText.includes("🚧")) {
+      doing += 1;
+    }
+  }
+
+  if (total === 0) {
+    return null;
+  }
+  if (done === total) {
+    return "released";
+  }
+  if (doing > 0 || done > 0) {
+    return "developing";
+  }
+  return "planned";
 }

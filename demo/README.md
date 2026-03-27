@@ -16,6 +16,8 @@
 3. 在 Obsidian 里启用 `Project Hub`
 4. 打开命令面板，执行 `Open Project Hub dashboard`
 
+如果你在本仓库内发布版本，推荐直接执行 `npm.cmd run release`，它会自动把插件文件、当前项目数据和 `demo/Projects` 一起同步到本地 Vault。
+
 ## Windows 复制示例
 
 ```powershell

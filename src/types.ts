@@ -11,6 +11,7 @@ export interface BaseEntity {
 export interface ProjectRecord extends BaseEntity {
   type: "project";
   project: string;
+  projectPath: string;
   owner?: string;
   status?: ProjectStatus;
   start?: string;
@@ -20,6 +21,7 @@ export interface ProjectRecord extends BaseEntity {
 export interface VersionRecord extends BaseEntity {
   type: "version";
   project: string;
+  projectPath: string;
   version: string;
   status?: VersionStatus;
   start?: string;
@@ -31,6 +33,7 @@ export interface TaskRecord extends BaseEntity {
   id: string;
   type: "task";
   project: string;
+  projectPath: string;
   version?: string;
   owner?: string;
   priority?: string;
@@ -47,6 +50,7 @@ export interface TaskRecord extends BaseEntity {
 export interface RoadmapRecord extends BaseEntity {
   type: "roadmap";
   project: string;
+  projectPath: string;
   markdownTable: string;
 }
 

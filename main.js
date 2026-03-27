@@ -58,17 +58,41 @@ function normalizeString(value) {
   return trimmed.length > 0 ? trimmed : void 0;
 }
 function inferProjectFromPath(filePath) {
+  var _a;
   const normalizedPath = filePath.replace(/\\/g, "/");
-  const segments = normalizedPath.split("/");
+  const segments = normalizedPath.split("/").filter((segment) => segment.length > 0);
   const projectsIndex = segments.findIndex((segment) => segment === "Projects");
-  if (projectsIndex === -1 || projectsIndex + 1 >= segments.length) {
-    return void 0;
+  if (projectsIndex !== -1 && projectsIndex + 1 < segments.length) {
+    return {
+      project: segments[projectsIndex + 1],
+      projectPath: segments.slice(0, projectsIndex + 2).join("/")
+    };
   }
-  return segments[projectsIndex + 1];
+  const containerIndex = segments.findIndex(
+    (segment, index) => index > 0 && ["Versions", "Ops", "Docs"].includes(segment)
+  );
+  if (containerIndex !== -1) {
+    return {
+      project: segments[containerIndex - 1],
+      projectPath: segments.slice(0, containerIndex).join("/")
+    };
+  }
+  const fileName = (_a = segments[segments.length - 1]) != null ? _a : "";
+  if (/^(00_Project|01_Roadmap)\.md$/i.test(fileName) && segments.length >= 2) {
+    return {
+      project: segments[segments.length - 2],
+      projectPath: segments.slice(0, -1).join("/")
+    };
+  }
+  return {};
 }
 function resolveProject(frontmatter, file) {
   var _a, _b;
-  return (_b = (_a = normalizeString(frontmatter.project)) != null ? _a : normalizeString(frontmatter.name)) != null ? _b : inferProjectFromPath(file.path);
+  const inferred = inferProjectFromPath(file.path);
+  return {
+    project: (_b = (_a = normalizeString(frontmatter.project)) != null ? _a : normalizeString(frontmatter.name)) != null ? _b : inferred.project,
+    projectPath: inferred.projectPath
+  };
 }
 function getTitleFromBody(content, file) {
   const heading = content.split(/\r?\n/).find((line) => line.trim().startsWith("# "));
@@ -125,7 +149,7 @@ function extractDue(text) {
 function extractTaskTitle(text) {
   return text.replace(/@([^\s🔥⚠️🚧📅]+)/gu, "").replace(/[🔥⚠️🚧]/gu, "").replace(/📅\d{4}-\d{2}-\d{2}/g, "").replace(/\s+/g, " ").trim();
 }
-function parseChecklistTasks(content, file, project, sourceType, source, version) {
+function parseChecklistTasks(content, file, project, projectPath, sourceType, source, version) {
   const { body, startLine } = stripFrontmatter(content);
   const tasks = [];
   const lines = body.split(/\r?\n/);
@@ -146,6 +170,7 @@ function parseChecklistTasks(content, file, project, sourceType, source, version
       title,
       modifiedTime: file.stat.mtime,
       project,
+      projectPath,
       version,
       owner: extractOwner(rawText),
       priority: extractPriority(rawText),
@@ -161,8 +186,8 @@ function parseChecklistTasks(content, file, project, sourceType, source, version
   return tasks;
 }
 function parseProject(frontmatter, file, content) {
-  const project = resolveProject(frontmatter, file);
-  if (!project) {
+  const projectInfo = resolveProject(frontmatter, file);
+  if (!projectInfo.project || !projectInfo.projectPath) {
     return null;
   }
   return {
@@ -170,7 +195,8 @@ function parseProject(frontmatter, file, content) {
     filePath: file.path,
     title: getTitleFromBody(content, file),
     modifiedTime: file.stat.mtime,
-    project,
+    project: projectInfo.project,
+    projectPath: projectInfo.projectPath,
     owner: normalizeString(frontmatter.owner),
     status: normalizeString(frontmatter.status),
     start: normalizeString(frontmatter.start),
@@ -179,9 +205,9 @@ function parseProject(frontmatter, file, content) {
 }
 function parseVersion(frontmatter, file, content) {
   var _a;
-  const project = resolveProject(frontmatter, file);
+  const projectInfo = resolveProject(frontmatter, file);
   const version = normalizeString(frontmatter.version);
-  if (!project || !version) {
+  if (!projectInfo.project || !projectInfo.projectPath || !version) {
     return null;
   }
   return {
@@ -189,7 +215,8 @@ function parseVersion(frontmatter, file, content) {
     filePath: file.path,
     title: getTitleFromBody(content, file),
     modifiedTime: file.stat.mtime,
-    project,
+    project: projectInfo.project,
+    projectPath: projectInfo.projectPath,
     version,
     status: normalizeString(frontmatter.status),
     start: normalizeString(frontmatter.start),
@@ -199,8 +226,8 @@ function parseVersion(frontmatter, file, content) {
 }
 function parseTask(frontmatter, file, content) {
   var _a, _b, _c, _d;
-  const project = resolveProject(frontmatter, file);
-  if (!project) {
+  const projectInfo = resolveProject(frontmatter, file);
+  if (!projectInfo.project || !projectInfo.projectPath) {
     return null;
   }
   const status = (_a = normalizeString(frontmatter.status)) != null ? _a : "todo";
@@ -212,7 +239,8 @@ function parseTask(frontmatter, file, content) {
     filePath: file.path,
     title: taskTitle,
     modifiedTime: file.stat.mtime,
-    project,
+    project: projectInfo.project,
+    projectPath: projectInfo.projectPath,
     version: normalizeString(frontmatter.version),
     owner: normalizeString(frontmatter.owner),
     priority: normalizeString(frontmatter.priority),
@@ -227,8 +255,8 @@ function parseTask(frontmatter, file, content) {
   };
 }
 function parseRoadmap(frontmatter, file, content) {
-  const project = resolveProject(frontmatter, file);
-  if (!project) {
+  const projectInfo = resolveProject(frontmatter, file);
+  if (!projectInfo.project || !projectInfo.projectPath) {
     return null;
   }
   return {
@@ -236,7 +264,8 @@ function parseRoadmap(frontmatter, file, content) {
     filePath: file.path,
     title: getTitleFromBody(content, file),
     modifiedTime: file.stat.mtime,
-    project,
+    project: projectInfo.project,
+    projectPath: projectInfo.projectPath,
     markdownTable: getRoadmapTable(content)
   };
 }
@@ -261,7 +290,7 @@ async function parseMarkdownFile(app, file) {
       tasks: []
     };
   }
-  const project = resolveProject(frontmatter, file);
+  const projectInfo = resolveProject(frontmatter, file);
   switch (type) {
     case "project":
       return {
@@ -271,7 +300,7 @@ async function parseMarkdownFile(app, file) {
         tasks: []
       };
     case "version":
-      if (!project) {
+      if (!projectInfo.project) {
         return { project: null, version: null, roadmap: null, tasks: [] };
       }
       const versionRecord = parseVersion(frontmatter, file, content);
@@ -279,24 +308,32 @@ async function parseMarkdownFile(app, file) {
         project: null,
         version: versionRecord,
         roadmap: null,
-        tasks: versionRecord ? parseChecklistTasks(content, file, project, "version-task", versionRecord.version, versionRecord.version) : []
+        tasks: versionRecord ? parseChecklistTasks(
+          content,
+          file,
+          versionRecord.project,
+          versionRecord.projectPath,
+          "version-task",
+          versionRecord.version,
+          versionRecord.version
+        ) : []
       };
     case "ops":
-      if (!project) {
+      if (!projectInfo.project || !projectInfo.projectPath) {
         return { project: null, version: null, roadmap: null, tasks: [] };
       }
       return {
         project: null,
         version: null,
         roadmap: null,
-        tasks: parseChecklistTasks(content, file, project, "ops-task", "\u8FD0\u7EF4")
+        tasks: parseChecklistTasks(content, file, projectInfo.project, projectInfo.projectPath, "ops-task", "\u8FD0\u7EF4")
       };
     case "task":
       return {
         project: null,
         version: null,
         roadmap: null,
-        tasks: project ? [parseTask(frontmatter, file, content)].filter((task) => Boolean(task)) : []
+        tasks: projectInfo.project ? [parseTask(frontmatter, file, content)].filter((task) => Boolean(task)) : []
       };
     case "roadmap":
       return {
@@ -334,6 +371,7 @@ function compareByPath(left, right) {
 var ProjectStore = class {
   constructor(app) {
     this.listeners = /* @__PURE__ */ new Set();
+    this.declaredProjects = [];
     this.projects = [];
     this.versions = [];
     this.tasks = [];
@@ -343,10 +381,11 @@ var ProjectStore = class {
   async rebuild() {
     const files = this.app.vault.getMarkdownFiles();
     const parsed = await Promise.all(files.map((file) => parseMarkdownFile(this.app, file)));
-    this.projects = parsed.map((item) => item.project).filter(isProject).sort(compareByPath);
+    this.declaredProjects = parsed.map((item) => item.project).filter(isProject).sort(compareByPath);
     this.versions = parsed.map((item) => item.version).filter(isVersion).sort(compareByPath);
     this.tasks = parsed.flatMap((item) => item.tasks).filter(isTask).sort(compareByPath);
     this.roadmaps = parsed.map((item) => item.roadmap).filter(isRoadmap).sort(compareByPath);
+    this.projects = buildProjectRecords(this.declaredProjects, this.versions, this.tasks, this.roadmaps);
     this.emitChange();
   }
   async refreshFile(file) {
@@ -357,8 +396,8 @@ var ProjectStore = class {
     const parsed = await parseMarkdownFile(this.app, file);
     if (parsed.project) {
       if (isProject(parsed.project)) {
-        this.projects.push(parsed.project);
-        this.projects.sort(compareByPath);
+        this.declaredProjects.push(parsed.project);
+        this.declaredProjects.sort(compareByPath);
       }
     }
     if (parsed.version && isVersion(parsed.version)) {
@@ -373,15 +412,17 @@ var ProjectStore = class {
       this.roadmaps.push(parsed.roadmap);
       this.roadmaps.sort(compareByPath);
     }
+    this.projects = buildProjectRecords(this.declaredProjects, this.versions, this.tasks, this.roadmaps);
     this.emitChange();
   }
   removeFile(path) {
-    const beforeCounts = [this.projects.length, this.versions.length, this.tasks.length, this.roadmaps.length];
-    this.projects = this.projects.filter((item) => item.filePath !== path);
+    const beforeCounts = [this.declaredProjects.length, this.projects.length, this.versions.length, this.tasks.length, this.roadmaps.length];
+    this.declaredProjects = this.declaredProjects.filter((item) => item.filePath !== path);
     this.versions = this.versions.filter((item) => item.filePath !== path);
     this.tasks = this.tasks.filter((item) => item.filePath !== path);
     this.roadmaps = this.roadmaps.filter((item) => item.filePath !== path);
-    const afterCounts = [this.projects.length, this.versions.length, this.tasks.length, this.roadmaps.length];
+    this.projects = buildProjectRecords(this.declaredProjects, this.versions, this.tasks, this.roadmaps);
+    const afterCounts = [this.declaredProjects.length, this.projects.length, this.versions.length, this.tasks.length, this.roadmaps.length];
     const changed = beforeCounts.some((count, index) => count !== afterCounts[index]);
     if (changed) {
       this.emitChange();
@@ -581,6 +622,26 @@ function normalizeRoadmapDate(rawValue, baseYear) {
   }
   return null;
 }
+function buildProjectRecords(declaredProjects, versions, tasks, roadmaps) {
+  const projects = /* @__PURE__ */ new Map();
+  for (const project of declaredProjects) {
+    projects.set(project.project, project);
+  }
+  for (const record of [...versions, ...tasks, ...roadmaps]) {
+    if (projects.has(record.project)) {
+      continue;
+    }
+    projects.set(record.project, {
+      type: "project",
+      filePath: record.filePath,
+      title: record.project,
+      modifiedTime: record.modifiedTime,
+      project: record.project,
+      projectPath: record.projectPath
+    });
+  }
+  return [...projects.values()].sort(compareByPath);
+}
 
 // src/views/dashboard-view.ts
 var import_obsidian2 = require("obsidian");
@@ -596,6 +657,7 @@ var CreateTaskModal = class extends import_obsidian.Modal {
     this.priority = "medium";
     this.due = "";
     this.project = options.project;
+    this.projectPath = (0, import_obsidian.normalizePath)(options.projectPath);
     this.versions = options.versions;
     this.onCreated = options.onCreated;
   }
@@ -678,7 +740,7 @@ var CreateTaskModal = class extends import_obsidian.Modal {
     this.close();
   }
   async createTaskFile(input) {
-    const filePath = input.version ? (0, import_obsidian.normalizePath)(`Projects/${input.project}/Versions/V${input.version}.md`) : (0, import_obsidian.normalizePath)(`Projects/${input.project}/Ops/Ops.md`);
+    const filePath = input.version ? (0, import_obsidian.normalizePath)(`${this.projectPath}/Versions/V${input.version}.md`) : (0, import_obsidian.normalizePath)(`${this.projectPath}/Ops/Ops.md`);
     await ensureFolder(this.app, (0, import_obsidian.normalizePath)(filePath.split("/").slice(0, -1).join("/")));
     const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
     const taskLine = buildTaskLine(input.title, input.owner, input.priority, input.due);
@@ -688,7 +750,7 @@ var CreateTaskModal = class extends import_obsidian.Modal {
       await this.app.vault.modify(abstractFile, nextContent);
       return filePath;
     }
-    const initialContent = input.version ? buildVersionFile(input.project, input.version, taskLine) : buildOpsFile(taskLine);
+    const initialContent = input.version ? buildVersionFile(input.project, input.version, taskLine) : buildOpsFile(input.project, taskLine);
     await this.app.vault.create(filePath, initialContent);
     return filePath;
   }
@@ -742,10 +804,11 @@ function buildVersionFile(project, version, taskLine) {
     ""
   ].join("\n");
 }
-function buildOpsFile(taskLine) {
+function buildOpsFile(project, taskLine) {
   return [
     "---",
     "type: ops",
+    `project: ${project}`,
     "---",
     "",
     "# \u8FD0\u7EF4\u4EFB\u52A1",
@@ -765,6 +828,15 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     this.selectedProject = null;
     this.selectedVersion = null;
     this.draggingTaskId = null;
+    this.expandedVersionGroups = /* @__PURE__ */ new Set();
+    this.headerEl = null;
+    this.summaryEl = null;
+    this.boardEl = null;
+    this.kanbanEl = null;
+    this.pendingProjectRowRefresh = null;
+    this.pendingSelection = null;
+    this.preferredSelection = null;
+    this.suppressRenderCount = 0;
     this.unsubscribe = null;
     this.plugin = plugin;
     this.store = store;
@@ -780,6 +852,16 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
   }
   async onOpen() {
     this.unsubscribe = this.store.subscribe(() => {
+      if (this.suppressRenderCount > 0) {
+        this.suppressRenderCount -= 1;
+        return;
+      }
+      if (this.pendingProjectRowRefresh) {
+        const project = this.pendingProjectRowRefresh;
+        this.pendingProjectRowRefresh = null;
+        this.renderPartialUpdate(project);
+        return;
+      }
       this.render();
     });
     this.render();
@@ -794,9 +876,15 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
       new import_obsidian2.Notice("\u8BF7\u5148\u9009\u62E9\u4E00\u4E2A\u9879\u76EE");
       return;
     }
+    const projectRecord = this.store.getProjects().find((item) => item.project === this.selectedProject);
+    if (!projectRecord) {
+      new import_obsidian2.Notice("\u672A\u627E\u5230\u9879\u76EE\u76EE\u5F55\uFF0C\u65E0\u6CD5\u521B\u5EFA\u4EFB\u52A1");
+      return;
+    }
     new CreateTaskModal({
       app: this.app,
       project: this.selectedProject,
+      projectPath: projectRecord.projectPath,
       versions: this.store.getVersions(this.selectedProject),
       onCreated: async () => {
         await this.store.rebuild();
@@ -804,61 +892,124 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     }).open();
   }
   render() {
-    var _a, _b, _c, _d;
     const container = this.containerEl.children[1];
-    container.empty();
     container.addClass("project-hub-view");
+    this.ensureLayout(container);
+    this.renderHeader();
+    this.renderSections();
+  }
+  renderHeader() {
+    if (!this.headerEl) {
+      return;
+    }
+    this.renderDashboardHeader(this.headerEl);
+  }
+  renderPartialUpdate(projectName) {
+    if (!this.summaryEl || !this.boardEl || !this.kanbanEl) {
+      this.render();
+      return;
+    }
     const projects = this.store.getProjects();
-    if (!this.selectedProject && projects.length > 0) {
-      this.selectedProject = projects[0].project;
-    }
-    if (this.selectedProject && !projects.some((item) => item.project === this.selectedProject)) {
-      this.selectedProject = (_b = (_a = projects[0]) == null ? void 0 : _a.project) != null ? _b : null;
-    }
-    this.renderHeader(container, projects);
-    if (!this.selectedProject) {
-      container.createEl("div", {
+    const versions = this.store.getVersions();
+    const tasks = this.store.getTasks();
+    this.restorePendingSelection(projects, versions);
+    this.syncSelection(projects, versions);
+    this.renderGlobalStats(this.summaryEl, projects, versions, tasks);
+    this.refreshProjectBoardRow(projectName, projects, versions, tasks);
+    if (projects.length === 0) {
+      this.kanbanEl.empty();
+      this.kanbanEl.createEl("div", {
         cls: "project-hub-empty-state",
         text: "\u672A\u627E\u5230\u9879\u76EE\u6570\u636E\u3002\u5148\u521B\u5EFA\u5E26\u6709 type: project \u7684 Markdown \u6587\u4EF6\u3002"
       });
       return;
     }
-    const versionProgress = this.store.getVersionProgress(this.selectedProject);
-    if (!this.selectedVersion && versionProgress.length > 0) {
-      this.selectedVersion = versionProgress[0].version.version;
-    }
-    if (this.selectedVersion && !versionProgress.some((item) => item.version.version === this.selectedVersion)) {
-      this.selectedVersion = (_d = (_c = versionProgress[0]) == null ? void 0 : _c.version.version) != null ? _d : null;
-    }
-    this.renderStats(container, this.selectedProject);
-    this.renderCharts(container, this.selectedProject);
-    this.renderKanban(container, this.selectedProject);
-    this.renderVersionCenter(container, versionProgress);
-    this.renderRoadmap(container, this.selectedProject);
+    this.renderTaskKanban(this.kanbanEl, projects, versions);
   }
-  renderHeader(container, projects) {
-    var _a;
-    const header = container.createDiv({ cls: "project-hub-header" });
-    const titleWrap = header.createDiv();
-    titleWrap.createEl("h2", { text: "Project Dashboard" });
-    titleWrap.createEl("p", {
-      cls: "project-hub-subtitle",
-      text: "\u4EFB\u52A1\u3001\u7248\u672C\u3001\u62A5\u8868\u3001\u8DEF\u7EBF\u56FE\u7EDF\u4E00\u7BA1\u7406"
-    });
-    const actions = header.createDiv({ cls: "project-hub-header-actions" });
-    const selectorWrap = actions.createDiv({ cls: "project-hub-selector" });
-    selectorWrap.createEl("label", { cls: "project-hub-inline-label", text: "\u9879\u76EE" });
-    const select = selectorWrap.createEl("select");
-    select.createEl("option", { value: "", text: "\u9009\u62E9\u9879\u76EE" });
-    for (const project of projects) {
-      select.createEl("option", { value: project.project, text: project.project });
+  renderSections() {
+    if (!this.summaryEl || !this.boardEl || !this.kanbanEl) {
+      return;
     }
-    select.value = (_a = this.selectedProject) != null ? _a : "";
-    select.addEventListener("change", () => {
-      this.selectedProject = select.value || null;
+    const projects = this.store.getProjects();
+    const versions = this.store.getVersions();
+    const tasks = this.store.getTasks();
+    this.restorePendingSelection(projects, versions);
+    this.syncSelection(projects, versions);
+    this.renderGlobalStats(this.summaryEl, projects, versions, tasks);
+    this.renderProjectVersionBoard(this.boardEl, projects, versions, tasks);
+    if (projects.length === 0) {
+      this.kanbanEl.empty();
+      this.kanbanEl.createEl("div", {
+        cls: "project-hub-empty-state",
+        text: "\u672A\u627E\u5230\u9879\u76EE\u6570\u636E\u3002\u5148\u521B\u5EFA\u5E26\u6709 type: project \u7684 Markdown \u6587\u4EF6\u3002"
+      });
+      return;
+    }
+    this.renderTaskKanban(this.kanbanEl, projects, versions);
+  }
+  ensureLayout(container) {
+    const hostsMissing = !this.headerEl || !this.summaryEl || !this.boardEl || !this.kanbanEl;
+    const hostsDetached = Boolean(
+      this.headerEl && this.summaryEl && this.boardEl && this.kanbanEl && (!container.contains(this.headerEl) || !container.contains(this.summaryEl) || !container.contains(this.boardEl) || !container.contains(this.kanbanEl))
+    );
+    if (!hostsMissing && !hostsDetached) {
+      return;
+    }
+    container.empty();
+    this.headerEl = container.createDiv({ cls: "project-hub-header-host" });
+    this.summaryEl = container.createDiv({ cls: "project-hub-summary-host" });
+    this.boardEl = container.createDiv({ cls: "project-hub-board-host" });
+    this.kanbanEl = container.createDiv({ cls: "project-hub-kanban-host" });
+  }
+  restorePendingSelection(projects, versions) {
+    if (!this.pendingSelection) {
+      return;
+    }
+    const { project, version } = this.pendingSelection;
+    this.pendingSelection = null;
+    if (project && projects.some((item) => item.project === project)) {
+      this.selectedProject = project;
+      if (version && versions.some((item) => item.project === project && item.version === version)) {
+        this.selectedVersion = version;
+      }
+      this.preferredSelection = { project, version };
+    }
+  }
+  syncSelection(projects, versions) {
+    var _a, _b, _c, _d, _e, _f;
+    if (projects.length === 0) {
+      this.selectedProject = null;
       this.selectedVersion = null;
-      this.render();
+      return;
+    }
+    if (((_a = this.preferredSelection) == null ? void 0 : _a.project) && projects.some((project) => project.project === this.preferredSelection.project)) {
+      this.selectedProject = this.preferredSelection.project;
+    }
+    const sortedProjects = this.sortProjects(projects, versions);
+    if (!this.selectedProject || !projects.some((project) => project.project === this.selectedProject)) {
+      this.selectedProject = (_c = (_b = sortedProjects[0]) == null ? void 0 : _b.project) != null ? _c : null;
+    }
+    const projectVersions = this.getSortedVersionsForProject(versions, this.selectedProject);
+    if (((_d = this.preferredSelection) == null ? void 0 : _d.project) === this.selectedProject && this.preferredSelection.version && projectVersions.some((version) => {
+      var _a2;
+      return version.version === ((_a2 = this.preferredSelection) == null ? void 0 : _a2.version);
+    })) {
+      this.selectedVersion = this.preferredSelection.version;
+      return;
+    }
+    if (!this.selectedVersion || !projectVersions.some((version) => version.version === this.selectedVersion)) {
+      this.selectedVersion = (_f = (_e = projectVersions[0]) == null ? void 0 : _e.version) != null ? _f : null;
+    }
+  }
+  renderDashboardHeader(container) {
+    container.empty();
+    const header = container.createDiv({ cls: "project-hub-dashboard-header" });
+    const titleWrap = header.createDiv({ cls: "project-hub-dashboard-title-wrap" });
+    titleWrap.createEl("h1", { text: "Project Hub Dashboard" });
+    titleWrap.createEl("p", {
+      text: "\u4E00\u5C4F\u770B\u5168\u5C40 \xB7 \u4E00\u5C4F\u7BA1\u6267\u884C | \u9879\u76EE\u884C\u5F0F\u7248\u672C\u770B\u677F + \u7248\u672C\u4EFB\u52A1\u770B\u677F"
     });
+    const actions = header.createDiv({ cls: "project-hub-dashboard-actions" });
     const createButton = actions.createEl("button", { cls: "mod-cta", text: "\u5FEB\u901F\u65B0\u5EFA\u4EFB\u52A1" });
     createButton.addEventListener("click", async () => {
       await this.openQuickCreateTask();
@@ -869,126 +1020,229 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
       new import_obsidian2.Notice("Project Hub \u6570\u636E\u5DF2\u5237\u65B0");
     });
   }
-  renderStats(container, project) {
-    const stats = this.store.getStats(project);
-    const grid = container.createDiv({ cls: "project-hub-stats-grid" });
-    this.createStatCard(grid, "\u5B8C\u6210\u7387", `${stats.completionRate}%`, "\u76EE\u6807\u4EA4\u4ED8\u8FDB\u5EA6");
-    this.createStatCard(grid, "\u603B\u4EFB\u52A1", String(stats.totalTasks), "\u9879\u76EE\u8303\u56F4\u5185\u7684\u4EFB\u52A1\u603B\u6570");
-    this.createStatCard(grid, "\u8FDB\u884C\u4E2D", String(stats.doingTasks), "\u5F53\u524D\u63A8\u8FDB\u4E2D\u7684\u4EFB\u52A1");
-    this.createStatCard(grid, "\u5DF2\u5EF6\u671F", String(stats.overdueTasks), "\u622A\u6B62\u5DF2\u8FC7\u4E14\u672A\u5B8C\u6210");
-  }
-  createStatCard(container, label, value, caption) {
-    const card = container.createDiv({ cls: "project-hub-stat-card" });
-    card.createEl("span", { cls: "project-hub-stat-label", text: label });
-    card.createEl("strong", { cls: "project-hub-stat-value", text: value });
-    card.createEl("span", { cls: "project-hub-card-caption", text: caption });
-  }
-  renderCharts(container, project) {
-    const section = container.createDiv({ cls: "project-hub-section" });
-    section.createEl("h3", { text: "Dashboard \u56FE\u8868" });
-    const grid = section.createDiv({ cls: "project-hub-chart-grid" });
-    this.renderStatusDistribution(grid, project);
-    this.renderOwnerBreakdown(grid, project);
-    this.renderBurndown(grid, project);
-  }
-  renderStatusDistribution(container, project) {
-    const card = container.createDiv({ cls: "project-hub-chart-card" });
-    card.createEl("h4", { text: "\u72B6\u6001\u5206\u5E03" });
-    const items = this.store.getStatusBreakdown(project);
-    if (items.length === 0) {
-      card.createEl("p", { cls: "project-hub-empty-state small", text: "\u6682\u65E0\u4EFB\u52A1\u6570\u636E" });
-      return;
+  renderGlobalStats(container, projects, versions, tasks) {
+    container.empty();
+    const section = container.createDiv({ cls: "project-hub-dashboard-card project-hub-summary-card" });
+    const title = section.createDiv({ cls: "project-hub-section-title" });
+    title.setText("\u5168\u5C40\u7EDF\u8BA1\u533A \xB7 All Projects Summary");
+    const today = todayString();
+    const completedTasks = tasks.filter((task) => task.status === "done").length;
+    const doingTasks = tasks.filter((task) => task.status === "doing").length;
+    const delayedTasks = tasks.filter((task) => isTaskOverdue(task, today)).length;
+    const completionRate = tasks.length === 0 ? 0 : Math.round(completedTasks / tasks.length * 100);
+    const statsGrid = section.createDiv({ cls: "project-hub-summary-grid" });
+    for (const item of [
+      [String(projects.length), "\u9879\u76EE\u6570"],
+      [String(versions.length), "\u7248\u672C\u6570"],
+      [String(tasks.length), "\u603B\u4EFB\u52A1\u6570"],
+      [String(completedTasks), "\u5B8C\u6210\u4EFB\u52A1"],
+      [String(doingTasks), "\u8FDB\u884C\u4E2D\u4EFB\u52A1"],
+      [String(delayedTasks), "\u5EF6\u671F\u4EFB\u52A1"]
+    ]) {
+      const stat = statsGrid.createDiv({ cls: "project-hub-summary-item" });
+      if (item[1] === "\u5EF6\u671F\u4EFB\u52A1") {
+        stat.addClass("is-warning");
+      }
+      stat.createDiv({ cls: "project-hub-summary-value", text: item[0] });
+      stat.createDiv({ cls: "project-hub-summary-label", text: item[1] });
     }
-    const total = items.reduce((sum, item) => sum + item.count, 0);
-    for (const item of items) {
-      const row = card.createDiv({ cls: "project-hub-bar-row" });
-      row.createEl("span", { cls: "project-hub-bar-label", text: item.status });
-      const track = row.createDiv({ cls: "project-hub-bar-track" });
-      track.createDiv({ cls: `project-hub-bar-fill ${statusClass(item.status)}` }).style.width = `${Math.max(8, Math.round(item.count / total * 100))}%`;
-      row.createEl("span", { cls: "project-hub-bar-value", text: String(item.count) });
-    }
-  }
-  renderOwnerBreakdown(container, project) {
-    const card = container.createDiv({ cls: "project-hub-chart-card" });
-    card.createEl("h4", { text: "\u6309\u4EBA\u7EDF\u8BA1" });
-    const owners = this.store.getOwnerBreakdown(project);
-    if (owners.length === 0) {
-      card.createEl("p", { cls: "project-hub-empty-state small", text: "\u6682\u65E0\u8D1F\u8D23\u4EBA\u6570\u636E" });
-      return;
-    }
-    for (const owner of owners.slice(0, 6)) {
-      const row = card.createDiv({ cls: "project-hub-owner-row" });
-      const label = row.createDiv({ cls: "project-hub-owner-header" });
-      label.createEl("span", { text: owner.owner });
-      label.createEl("span", { text: `${owner.done}/${owner.total} \u5B8C\u6210` });
-      const track = row.createDiv({ cls: "project-hub-bar-track" });
-      track.createDiv({ cls: "project-hub-bar-fill is-owner" }).style.width = `${owner.total === 0 ? 0 : Math.round(owner.done / owner.total * 100)}%`;
+    const trend = section.createDiv({ cls: "project-hub-summary-trend" });
+    const trendHeader = trend.createDiv({ cls: "project-hub-summary-trend-header" });
+    trendHeader.createSpan({ text: "\u4EFB\u52A1\u5B8C\u6210\u8D8B\u52BF (\u71C3\u5C3D)" });
+    trendHeader.createSpan({ text: `${completionRate}% \u5B8C\u6210` });
+    const progressBar = trend.createDiv({ cls: "project-hub-burnup-bar" });
+    progressBar.createDiv({ cls: "project-hub-burnup-fill" }).style.width = `${completionRate}%`;
+    const miniChart = trend.createDiv({ cls: "project-hub-mini-chart" });
+    for (const value of buildMiniTrendValues(this.store.getBurndown(), completionRate)) {
+      const bar = miniChart.createDiv({ cls: "project-hub-mini-chart-bar" });
+      bar.style.height = `${Math.min(100, Math.max(14, Math.round(value)))}%`;
     }
   }
-  renderBurndown(container, project) {
-    const card = container.createDiv({ cls: "project-hub-chart-card project-hub-chart-card-wide" });
-    card.createEl("h4", { text: "\u71C3\u5C3D\u56FE" });
-    card.createEl("p", {
-      cls: "project-hub-card-caption",
-      text: "\u5B9E\u9645\u7EBF\u57FA\u4E8E\u5DF2\u5B8C\u6210\u4EFB\u52A1\u6587\u4EF6\u7684\u6700\u8FD1\u4FEE\u6539\u65F6\u95F4\u4F30\u7B97"
+  renderProjectVersionBoard(container, projects, versions, tasks) {
+    container.empty();
+    const section = container.createDiv({ cls: "project-hub-dashboard-card project-hub-board-card" });
+    const title = section.createDiv({ cls: "project-hub-section-title" });
+    title.setText("\u9879\u76EE & \u7248\u672C\u72B6\u6001\u770B\u677F (Project Version Board) | \u6309\u7248\u672C\u603B\u6570\u6392\u5E8F | \u7248\u672C>3\u4E2A\u65F6\u6298\u53E0");
+    const boardRoot = section.createDiv({ cls: "project-hub-version-grid-container" });
+    const grid = boardRoot.createDiv({ cls: "project-hub-version-grid" });
+    const projectHeader = grid.createDiv({ cls: "project-hub-grid-header project-hub-grid-header-multiline" });
+    projectHeader.createDiv({ cls: "project-hub-grid-header-line", text: "\u9879\u76EE" });
+    projectHeader.createDiv({ cls: "project-hub-grid-header-line", text: "\u7248\u672C\u603B\u6570" });
+    for (const headerText of ["Todo", "Doing", "Done"]) {
+      grid.createDiv({ cls: "project-hub-grid-header", text: headerText });
+    }
+    for (const project of this.sortProjects(projects, versions)) {
+      this.renderProjectBoardRow(grid, project, versions, tasks);
+    }
+  }
+  renderProjectBoardRow(grid, project, versions, tasks) {
+    const row = grid.createDiv({ cls: "project-hub-grid-row" });
+    row.dataset.project = project.project;
+    const projectVersions = versions.filter((version) => version.project === project.project);
+    const projectCell = row.createDiv({ cls: "project-hub-grid-cell project-hub-project-name-cell" });
+    projectCell.createDiv({ cls: "project-hub-project-name", text: project.project });
+    projectCell.createSpan({
+      cls: "project-hub-project-badge",
+      text: `\u7248\u672C\u603B\u6570\uFF1A${projectVersions.length}`
     });
-    const points = this.store.getBurndown(project);
-    if (points.length < 2) {
-      card.createEl("p", { cls: "project-hub-empty-state small", text: "\u6570\u636E\u4E0D\u8DB3\uFF0C\u65E0\u6CD5\u7ED8\u5236\u71C3\u5C3D\u56FE" });
+    for (const status of ["todo", "doing", "done"]) {
+      const cell = row.createDiv({ cls: "project-hub-grid-cell" });
+      this.renderVersionGroup(cell, project.project, status, projectVersions, tasks);
+    }
+    return row;
+  }
+  refreshProjectBoardRow(projectName, projects, versions, tasks) {
+    if (!this.boardEl) {
       return;
     }
-    this.renderBurndownSvg(card, points);
-  }
-  renderBurndownSvg(container, points) {
-    const width = 640;
-    const height = 220;
-    const padding = 24;
-    const maxValue = Math.max(...points.map((point) => Math.max(point.remaining, point.idealRemaining)), 1);
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-    svg.classList.add("project-hub-burndown-svg");
-    for (let index = 0; index < 4; index += 1) {
-      const y = padding + (height - padding * 2) / 3 * index;
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", String(padding));
-      line.setAttribute("x2", String(width - padding));
-      line.setAttribute("y1", String(y));
-      line.setAttribute("y2", String(y));
-      line.setAttribute("class", "project-hub-grid-line");
-      svg.appendChild(line);
+    const grid = this.boardEl.querySelector(".project-hub-version-grid");
+    if (!grid) {
+      this.renderProjectVersionBoard(this.boardEl, projects, versions, tasks);
+      return;
     }
-    const actualPolyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
-    actualPolyline.setAttribute("fill", "none");
-    actualPolyline.setAttribute("class", "project-hub-line-actual");
-    actualPolyline.setAttribute("points", toPolyline(points, width, height, padding, maxValue, "remaining"));
-    svg.appendChild(actualPolyline);
-    const idealPolyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
-    idealPolyline.setAttribute("fill", "none");
-    idealPolyline.setAttribute("class", "project-hub-line-ideal");
-    idealPolyline.setAttribute("points", toPolyline(points, width, height, padding, maxValue, "idealRemaining"));
-    svg.appendChild(idealPolyline);
-    container.appendChild(svg);
-    const labels = container.createDiv({ cls: "project-hub-burndown-labels" });
-    labels.createSpan({ text: points[0].date });
-    labels.createSpan({ text: points[points.length - 1].date });
+    const existingRows = Array.from(grid.querySelectorAll(".project-hub-grid-row"));
+    const targetRow = existingRows.find((row) => row.dataset.project === projectName);
+    const project = projects.find((item) => item.project === projectName);
+    if (!project) {
+      targetRow == null ? void 0 : targetRow.remove();
+      return;
+    }
+    if (!targetRow) {
+      this.renderProjectVersionBoard(this.boardEl, projects, versions, tasks);
+      return;
+    }
+    const nextSibling = targetRow.nextElementSibling;
+    targetRow.remove();
+    const newRow = this.renderProjectBoardRow(grid, project, versions, tasks);
+    if (nextSibling) {
+      grid.insertBefore(newRow, nextSibling);
+    }
   }
-  renderKanban(container, project) {
-    const section = container.createDiv({ cls: "project-hub-section" });
-    const header = section.createDiv({ cls: "project-hub-section-header" });
-    header.createEl("h3", { text: "\u4EFB\u52A1\u770B\u677F" });
-    header.createEl("p", { cls: "project-hub-card-caption", text: "\u652F\u6301\u62D6\u62FD\u5361\u7247\u76F4\u63A5\u66F4\u65B0\u4EFB\u52A1\u72B6\u6001" });
-    const tasks = this.store.getTasks(project);
-    const columns = section.createDiv({ cls: "project-hub-task-columns" });
-    this.renderTaskColumn(columns, "todo", "Todo", tasks.filter((task) => task.status === "todo"), true);
-    this.renderTaskColumn(columns, "doing", "Doing", tasks.filter((task) => task.status === "doing"), true);
-    this.renderTaskColumn(columns, "done", "Done", tasks.filter((task) => task.status === "done"), true);
-    const otherTasks = tasks.filter((task) => !["todo", "doing", "done"].includes(task.status));
-    if (otherTasks.length > 0) {
-      this.renderTaskColumn(columns, "other", "Other", otherTasks, false);
+  renderVersionGroup(container, project, status, versions, tasks) {
+    const list = container.createDiv({ cls: "project-hub-version-cards-list" });
+    const filtered = versions.filter((version) => normalizeVersionBoardStatus(version.status) === status).sort(compareVersionRecordsDesc);
+    if (filtered.length === 0) {
+      list.createDiv({ cls: "project-hub-version-empty", text: "\u2014" });
+      return;
+    }
+    const groupKey = `${project}::${status}`;
+    const expanded = this.expandedVersionGroups.has(groupKey);
+    const visibleVersions = expanded ? filtered : filtered.slice(0, 3);
+    for (const version of visibleVersions) {
+      this.renderVersionCard(list, version, tasks);
+    }
+    if (filtered.length > 3) {
+      const toggle = list.createEl("button", { cls: "project-hub-expand-btn" });
+      toggle.setText(expanded ? "\u6536\u8D77 \u25B2" : `+ ${filtered.length - 3} \u66F4\u591A`);
+      toggle.addEventListener("click", () => {
+        if (expanded) {
+          this.expandedVersionGroups.delete(groupKey);
+        } else {
+          this.expandedVersionGroups.add(groupKey);
+        }
+        this.renderSections();
+      });
+    }
+  }
+  renderVersionCard(container, version, tasks) {
+    const versionTasks = tasks.filter((task) => task.project === version.project && task.version === version.version);
+    const doneCount = versionTasks.filter((task) => task.status === "done").length;
+    const progress = versionTasks.length === 0 ? 0 : Math.round(doneCount / versionTasks.length * 100);
+    const overdue = versionTasks.filter((task) => isTaskOverdue(task, todayString())).length;
+    const assignees = [...new Set(versionTasks.map((task) => task.owner).filter((owner) => Boolean(owner)))];
+    const card = container.createDiv({ cls: "project-hub-version-card" });
+    if (this.selectedProject === version.project && this.selectedVersion === version.version) {
+      card.addClass("is-active");
+    }
+    card.createDiv({ cls: "project-hub-version-name", text: version.version });
+    card.createDiv({
+      cls: "project-hub-version-date",
+      text: `${formatShortDate(version.start)} ~ ${formatShortDate(version.end)}`
+    });
+    card.createDiv({
+      cls: "project-hub-version-summary",
+      text: overdue > 0 ? `${progress}% \xB7 \u5EF6\u671F ${overdue}` : `${progress}% \xB7 \u6309\u671F`
+    });
+    card.setAttr(
+      "title",
+      `\u4EFB\u52A1\u6570: ${versionTasks.length}
+\u8D1F\u8D23\u4EBA: ${assignees.join(", ") || "\u672A\u5206\u914D"}
+\u53CC\u51FB\u6253\u5F00\u7248\u672C\u6587\u4EF6`
+    );
+    card.addEventListener("click", () => {
+      this.selectedProject = version.project;
+      this.selectedVersion = version.version;
+      this.preferredSelection = {
+        project: this.selectedProject,
+        version: this.selectedVersion
+      };
+      this.renderSections();
+    });
+    card.addEventListener("dblclick", async () => {
+      const file = this.plugin.app.vault.getAbstractFileByPath(version.filePath);
+      if (file instanceof import_obsidian2.TFile) {
+        await this.plugin.app.workspace.getLeaf(true).openFile(file);
+      }
+    });
+  }
+  renderTaskKanban(container, projects, versions) {
+    var _a, _b, _c;
+    container.empty();
+    const section = container.createDiv({ cls: "project-hub-task-kanban" });
+    const title = section.createDiv({ cls: "project-hub-section-title" });
+    title.setText("\u7248\u672C\u4EFB\u52A1\u770B\u677F \xB7 Version Task Kanban");
+    const filters = section.createDiv({ cls: "project-hub-filters" });
+    const projectGroup = filters.createDiv({ cls: "project-hub-filter-group" });
+    projectGroup.createEl("label", { text: "Project:" });
+    const projectSelect = projectGroup.createEl("select");
+    for (const project of this.sortProjects(projects, versions)) {
+      projectSelect.createEl("option", { value: project.project, text: project.project });
+    }
+    projectSelect.value = (_a = this.selectedProject) != null ? _a : "";
+    projectSelect.addEventListener("change", () => {
+      var _a2, _b2;
+      this.selectedProject = projectSelect.value || null;
+      const projectVersions = this.getSortedVersionsForProject(versions, this.selectedProject);
+      this.selectedVersion = (_b2 = (_a2 = projectVersions[0]) == null ? void 0 : _a2.version) != null ? _b2 : null;
+      this.preferredSelection = {
+        project: this.selectedProject,
+        version: this.selectedVersion
+      };
+      this.renderSections();
+    });
+    const versionGroup = filters.createDiv({ cls: "project-hub-filter-group" });
+    versionGroup.createEl("label", { text: "Version:" });
+    const versionSelect = versionGroup.createEl("select");
+    for (const version of this.getSortedVersionsForProject(versions, this.selectedProject)) {
+      versionSelect.createEl("option", { value: version.version, text: version.version });
+    }
+    versionSelect.value = (_b = this.selectedVersion) != null ? _b : "";
+    versionSelect.addEventListener("change", () => {
+      this.selectedVersion = versionSelect.value || null;
+      this.preferredSelection = {
+        project: this.selectedProject,
+        version: this.selectedVersion
+      };
+      this.renderSections();
+    });
+    const selectedTasks = this.store.getTasks((_c = this.selectedProject) != null ? _c : void 0).filter((task) => {
+      if (!this.selectedVersion) {
+        return false;
+      }
+      return task.version === this.selectedVersion;
+    });
+    const columns = section.createDiv({ cls: "project-hub-kanban-columns" });
+    this.renderTaskColumn(columns, "todo", "TODO", selectedTasks.filter((task) => task.status === "todo"), true);
+    this.renderTaskColumn(columns, "doing", "DOING", selectedTasks.filter((task) => task.status === "doing"), true);
+    this.renderTaskColumn(columns, "done", "DONE", selectedTasks.filter((task) => task.status === "done"), true);
+    if (!this.selectedVersion) {
+      columns.empty();
+      columns.createDiv({ cls: "project-hub-empty-state", text: "\u5F53\u524D\u9879\u76EE\u6CA1\u6709\u53EF\u7528\u7248\u672C\uFF0C\u8BF7\u5148\u521B\u5EFA\u7248\u672C\u6587\u4EF6\u3002" });
     }
   }
   renderTaskColumn(container, status, label, tasks, droppable) {
-    const column = container.createDiv({ cls: "project-hub-task-column" });
+    const column = container.createDiv({ cls: "project-hub-kanban-col" });
+    column.dataset.status = status;
     if (droppable) {
       column.addClass("is-droppable");
       column.addEventListener("dragover", (event) => {
@@ -1004,23 +1258,28 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
         await this.handleDrop(status);
       });
     }
-    const header = column.createDiv({ cls: "project-hub-task-column-header" });
-    header.createEl("span", { text: label });
-    header.createEl("span", { cls: "project-hub-count-badge", text: String(tasks.length) });
+    const header = column.createEl("h3", { cls: "project-hub-kanban-col-title" });
+    header.createSpan({ text: label });
+    header.createSpan({ cls: "project-hub-kanban-col-count", text: String(tasks.length) });
+    const list = column.createDiv({ cls: "project-hub-task-list" });
+    list.dataset.status = status;
     if (tasks.length === 0) {
-      column.createEl("div", {
+      list.createEl("div", {
         cls: "project-hub-empty-state small",
         text: droppable ? `\u62D6\u62FD\u4EFB\u52A1\u5230 ${label}` : `${label} \u5217\u4E3A\u7A7A`
       });
       return;
     }
     for (const task of tasks) {
-      this.renderTaskCard(column, task, status, droppable);
+      this.renderTaskCard(list, task, droppable);
     }
   }
-  renderTaskCard(container, task, currentStatus, draggable) {
-    var _a;
+  renderTaskCard(container, task, draggable) {
+    var _a, _b;
     const card = container.createDiv({ cls: "project-hub-task-card" });
+    card.dataset.taskId = task.id;
+    card.dataset.status = task.status;
+    card.style.borderLeftColor = task.priority === "high" ? "#dc2626" : "#e2e8f0";
     if (draggable) {
       card.setAttribute("draggable", "true");
       card.addEventListener("dragstart", (event) => {
@@ -1038,122 +1297,85 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
         card.removeClass("is-dragging");
       });
     }
-    const top = card.createDiv({ cls: "project-hub-task-card-top" });
-    top.createEl("div", { cls: "project-hub-task-title", text: task.text });
-    top.createDiv({ cls: `project-hub-priority-badge ${priorityClass(task.priority)}`, text: (_a = task.priority) != null ? _a : "medium" });
-    const meta = card.createDiv({ cls: "project-hub-task-meta" });
-    meta.createSpan({ text: task.version ? `\u7248\u672C ${task.version}` : "\u8FD0\u7EF4\u4EFB\u52A1" });
-    meta.createSpan({ text: task.owner ? `\u8D1F\u8D23\u4EBA ${task.owner}` : "\u672A\u5206\u914D" });
-    meta.createSpan({ text: task.sourceType === "ops-task" ? "\u6765\u6E90 Ops" : `\u6765\u6E90 ${task.source}` });
-    if (task.due) {
-      meta.createSpan({ text: `\u622A\u6B62 ${task.due}` });
-    }
-    const actions = card.createDiv({ cls: "project-hub-task-actions" });
-    const openButton = actions.createEl("button", { text: "\u6253\u5F00" });
-    openButton.addEventListener("click", async () => {
+    card.createDiv({
+      cls: "project-hub-task-title",
+      text: task.text
+    });
+    const meta = card.createDiv({
+      cls: "project-hub-task-meta",
+      text: `@${(_a = task.owner) != null ? _a : "\u672A\u5206\u914D"} \xB7 ${(_b = task.due) != null ? _b : "\u672A\u8BBE\u7F6E"}`
+    });
+    meta.setAttr("title", task.sourceType === "ops-task" ? "\u6765\u6E90 Ops" : `\u6765\u6E90 ${task.source}`);
+    card.setAttr("title", "\u62D6\u62FD\u53EF\u53D8\u66F4\u72B6\u6001\uFF0C\u53CC\u51FB\u6253\u5F00\u4EFB\u52A1\u6E90\u6587\u4EF6");
+    card.addEventListener("dblclick", async () => {
       await this.openTaskFile(task);
     });
-    const moveButton = actions.createEl("button", { text: "\u4FEE\u6539\u72B6\u6001" });
-    moveButton.addEventListener("click", (event) => {
-      const menu = new import_obsidian2.Menu();
-      for (const status of ["todo", "doing", "done"]) {
-        menu.addItem((item) => {
-          item.setTitle(status).setChecked(status === currentStatus).onClick(async () => {
-            await this.updateTaskStatus(task, status);
-          });
+  }
+  applyTaskMove(taskId, nextStatus) {
+    var _a;
+    if (!this.kanbanEl) {
+      return;
+    }
+    const card = this.kanbanEl.querySelector(`.project-hub-task-card[data-task-id="${cssEscape(taskId)}"]`);
+    if (!card) {
+      return;
+    }
+    const sourceList = card.parentElement;
+    const targetList = this.kanbanEl.querySelector(`.project-hub-task-list[data-status="${cssEscape(nextStatus)}"]`);
+    if (!sourceList || !targetList || sourceList === targetList) {
+      return;
+    }
+    const sourceStatus = (_a = sourceList.dataset.status) != null ? _a : "";
+    this.removeEmptyState(targetList);
+    targetList.appendChild(card);
+    card.dataset.status = nextStatus;
+    this.refreshTaskColumnState(sourceList, sourceStatus);
+    this.refreshTaskColumnState(targetList, nextStatus);
+  }
+  refreshTaskColumnState(list, status) {
+    const column = list.closest(".project-hub-kanban-col");
+    if (!column) {
+      return;
+    }
+    const count = list.querySelectorAll(":scope > .project-hub-task-card").length;
+    const countEl = column.querySelector(".project-hub-kanban-col-count");
+    if (countEl) {
+      countEl.setText(String(count));
+    }
+    const empty = list.querySelector(":scope > .project-hub-empty-state");
+    if (count === 0) {
+      if (!empty) {
+        list.createEl("div", {
+          cls: "project-hub-empty-state small",
+          text: `\u62D6\u62FD\u4EFB\u52A1\u5230 ${status.toUpperCase()}`
         });
       }
-      menu.showAtMouseEvent(event);
-    });
-  }
-  renderVersionCenter(container, versions) {
-    var _a, _b, _c, _d, _e;
-    const section = container.createDiv({ cls: "project-hub-section" });
-    section.createEl("h3", { text: "\u7248\u672C\u4E2D\u5FC3" });
-    if (versions.length === 0) {
-      section.createEl("p", { cls: "project-hub-empty-state", text: "\u5F53\u524D\u9879\u76EE\u8FD8\u6CA1\u6709\u7248\u672C\u6587\u4EF6\u3002" });
       return;
     }
-    const layout = section.createDiv({ cls: "project-hub-version-center" });
-    const list = layout.createDiv({ cls: "project-hub-version-list" });
-    const detail = layout.createDiv({ cls: "project-hub-version-detail" });
-    for (const item of versions) {
-      const card = list.createDiv({ cls: "project-hub-version-item" });
-      if (item.version.version === this.selectedVersion) {
-        card.addClass("is-active");
+    empty == null ? void 0 : empty.remove();
+  }
+  removeEmptyState(list) {
+    const empty = list.querySelector(":scope > .project-hub-empty-state");
+    empty == null ? void 0 : empty.remove();
+  }
+  sortProjects(projects, versions) {
+    var _a;
+    const order = new Map(projects.map((project, index) => [project.project, index]));
+    const counts = /* @__PURE__ */ new Map();
+    for (const version of versions) {
+      counts.set(version.project, ((_a = counts.get(version.project)) != null ? _a : 0) + 1);
+    }
+    return [...projects].sort((left, right) => {
+      var _a2, _b, _c, _d;
+      const countDiff = ((_a2 = counts.get(right.project)) != null ? _a2 : 0) - ((_b = counts.get(left.project)) != null ? _b : 0);
+      if (countDiff !== 0) {
+        return countDiff;
       }
-      card.addEventListener("click", () => {
-        this.selectedVersion = item.version.version;
-        this.render();
-      });
-      card.createEl("div", { cls: "project-hub-version-title", text: item.version.version });
-      card.createEl("div", { cls: "project-hub-version-meta", text: `${item.doneTasks}/${item.totalTasks} \u5DF2\u5B8C\u6210` });
-      const bar = card.createDiv({ cls: "project-hub-progress-bar" });
-      bar.createDiv({ cls: "project-hub-progress-bar-fill" }).style.width = `${item.completionRate}%`;
-    }
-    const current = (_a = versions.find((item) => item.version.version === this.selectedVersion)) != null ? _a : versions[0];
-    detail.createEl("h4", { text: current.version.version });
-    detail.createEl("p", {
-      cls: "project-hub-card-caption",
-      text: `\u72B6\u6001 ${(_b = current.version.status) != null ? _b : "unknown"} \xB7 \u53D1\u5E03\u65E5\u671F ${(_c = current.version.releaseDate) != null ? _c : "\u672A\u8BBE\u7F6E"}`
+      return ((_c = order.get(left.project)) != null ? _c : 0) - ((_d = order.get(right.project)) != null ? _d : 0);
     });
-    const metrics = detail.createDiv({ cls: "project-hub-version-metrics" });
-    for (const entry of [
-      ["\u5B8C\u6210\u7387", `${current.completionRate}%`],
-      ["Todo", String(current.todoTasks)],
-      ["Doing", String(current.doingTasks)],
-      ["Done", String(current.doneTasks)],
-      ["Overdue", String(current.overdueTasks)]
-    ]) {
-      const metric = metrics.createDiv({ cls: "project-hub-mini-card" });
-      metric.createEl("span", { text: entry[0] });
-      metric.createEl("strong", { text: entry[1] });
-    }
-    const tasks = this.store.getTasks((_d = this.selectedProject) != null ? _d : void 0).filter((task) => task.version === current.version.version);
-    const taskList = detail.createDiv({ cls: "project-hub-version-task-list" });
-    for (const task of tasks.slice(0, 8)) {
-      const row = taskList.createDiv({ cls: "project-hub-inline-task" });
-      row.createEl("span", { text: task.text });
-      const tags = row.createDiv({ cls: "project-hub-inline-task-tags" });
-      tags.createSpan({ text: task.status });
-      tags.createSpan({ text: (_e = task.owner) != null ? _e : "\u672A\u5206\u914D" });
-    }
-    if (tasks.length === 0) {
-      taskList.createEl("p", { cls: "project-hub-empty-state small", text: "\u8BE5\u7248\u672C\u6682\u65E0\u4EFB\u52A1" });
-    }
   }
-  renderRoadmap(container, project) {
-    const section = container.createDiv({ cls: "project-hub-section" });
-    section.createEl("h3", { text: "Roadmap" });
-    const entries = this.store.getRoadmapEntries(project);
-    if (entries.length === 0) {
-      section.createEl("p", {
-        cls: "project-hub-empty-state",
-        text: "\u5F53\u524D\u9879\u76EE\u8FD8\u6CA1\u6709\u53EF\u89E3\u6790\u7684 Roadmap \u8868\u683C\u3002"
-      });
-      return;
-    }
-    const minDate = entries[0].start;
-    const maxDate = entries.reduce((latest, item) => item.end > latest ? item.end : latest, entries[0].end);
-    section.createDiv({ cls: "project-hub-roadmap-range", text: `${minDate} \u2192 ${maxDate}` });
-    const timeline = section.createDiv({ cls: "project-hub-roadmap" });
-    for (const entry of entries) {
-      this.renderRoadmapRow(timeline, entry, minDate, maxDate);
-    }
-  }
-  renderRoadmapRow(container, entry, minDate, maxDate) {
-    const row = container.createDiv({ cls: "project-hub-roadmap-row" });
-    const meta = row.createDiv({ cls: "project-hub-roadmap-meta" });
-    meta.createEl("strong", { text: entry.label });
-    meta.createEl("span", { text: entry.status });
-    const daysTotal = diffDays(minDate, maxDate) + 1;
-    const offsetDays = diffDays(minDate, entry.start);
-    const durationDays = Math.max(1, diffDays(entry.start, entry.end) + 1);
-    const track = row.createDiv({ cls: "project-hub-roadmap-track" });
-    const bar = track.createDiv({ cls: `project-hub-roadmap-bar ${roadmapStatusClass(entry.status)}` });
-    bar.style.marginLeft = `${offsetDays / daysTotal * 100}%`;
-    bar.style.width = `${Math.max(8, durationDays / daysTotal * 100)}%`;
-    bar.setText(`${entry.start} - ${entry.end}`);
+  getSortedVersionsForProject(versions, project) {
+    return versions.filter((version) => !project || version.project === project).sort(compareVersionRecordsDesc);
   }
   async handleDrop(targetStatus) {
     var _a;
@@ -1184,66 +1406,105 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
       return;
     }
     const content = await this.plugin.app.vault.read(abstractFile);
-    const nextContent = updateChecklistTaskStatus(content, task, status);
+    let nextContent = updateChecklistTaskStatus(content, task, status);
+    if (task.sourceType === "version-task") {
+      nextContent = updateVersionStatusInFrontmatter(nextContent);
+    }
     if (nextContent === content) {
       new import_obsidian2.Notice("\u672A\u627E\u5230\u4EFB\u52A1\u884C\uFF0C\u65E0\u6CD5\u66F4\u65B0\u4EFB\u52A1\u72B6\u6001");
       return;
     }
+    this.pendingSelection = {
+      project: this.selectedProject,
+      version: this.selectedVersion
+    };
+    this.preferredSelection = {
+      project: this.selectedProject,
+      version: this.selectedVersion
+    };
+    this.pendingProjectRowRefresh = null;
+    this.suppressRenderCount = 2;
     await this.plugin.app.vault.modify(abstractFile, nextContent);
+    await this.store.refreshFile(abstractFile);
+    this.applyDragUpdate(task.project, task.id, status);
     new import_obsidian2.Notice(`\u4EFB\u52A1\u72B6\u6001\u5DF2\u66F4\u65B0\u4E3A ${status}`);
   }
+  applyDragUpdate(projectName, taskId, status) {
+    const projects = this.store.getProjects();
+    const versions = this.store.getVersions();
+    const tasks = this.store.getTasks();
+    this.restorePendingSelection(projects, versions);
+    this.syncSelection(projects, versions);
+    if (this.summaryEl) {
+      this.renderGlobalStats(this.summaryEl, projects, versions, tasks);
+    }
+    this.refreshProjectBoardRow(projectName, projects, versions, tasks);
+    this.applyTaskMove(taskId, status);
+  }
 };
-function toPolyline(points, width, height, padding, maxValue, key) {
-  return points.map((point, index) => {
-    const x = padding + (width - padding * 2) * index / Math.max(1, points.length - 1);
-    const y = height - padding - (height - padding * 2) * point[key] / maxValue;
-    return `${x},${y}`;
-  }).join(" ");
+function normalizeVersionBoardStatus(status) {
+  const normalized = (status != null ? status : "").trim().toLowerCase();
+  if (["doing", "developing", "active", "\u5F00\u53D1\u4E2D"].includes(normalized)) {
+    return "doing";
+  }
+  if (["released", "done", "\u5DF2\u53D1\u5E03"].includes(normalized)) {
+    return "done";
+  }
+  return "todo";
 }
-function diffDays(left, right) {
-  const start = /* @__PURE__ */ new Date(`${left}T00:00:00`);
-  const end = /* @__PURE__ */ new Date(`${right}T00:00:00`);
-  return Math.round((end.getTime() - start.getTime()) / 864e5);
+function compareVersionRecordsDesc(left, right) {
+  return compareVersionNamesDesc(left.version, right.version);
 }
-function statusClass(status) {
-  const normalized = status.trim().toLowerCase();
-  if (normalized === "todo") {
-    return "is-todo";
+function compareVersionNamesDesc(left, right) {
+  var _a, _b;
+  const leftParts = left.replace(/^[^\d]*/, "").split(".").map((part) => Number(part) || 0);
+  const rightParts = right.replace(/^[^\d]*/, "").split(".").map((part) => Number(part) || 0);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const diff = ((_a = rightParts[index]) != null ? _a : 0) - ((_b = leftParts[index]) != null ? _b : 0);
+    if (diff !== 0) {
+      return diff;
+    }
   }
-  if (normalized === "doing") {
-    return "is-doing";
-  }
-  if (normalized === "done") {
-    return "is-done";
-  }
-  return "is-neutral";
+  return right.localeCompare(left);
 }
-function priorityClass(priority) {
-  var _a;
-  const normalized = (_a = priority == null ? void 0 : priority.trim().toLowerCase()) != null ? _a : "medium";
-  if (["urgent", "critical"].includes(normalized)) {
-    return "is-urgent";
+function formatShortDate(value) {
+  if (!value) {
+    return "?";
   }
-  if (normalized === "high") {
-    return "is-high";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value.slice(5);
   }
-  if (normalized === "low") {
-    return "is-low";
-  }
-  return "is-medium";
+  return value;
 }
-function roadmapStatusClass(status) {
-  const normalized = status.trim().toLowerCase();
-  if (["\u5F00\u53D1\u4E2D", "developing", "doing", "active"].includes(normalized)) {
-    return "is-active";
+function todayString() {
+  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+}
+function isTaskOverdue(task, today) {
+  return task.status !== "done" && Boolean(task.due) && task.due < today;
+}
+function buildMiniTrendValues(points, completionRate) {
+  if (points.length === 0) {
+    return [completionRate];
   }
-  if (["\u89C4\u5212\u4E2D", "planned", "todo"].includes(normalized)) {
-    return "is-planned";
+  const maxRemaining = Math.max(...points.map((point) => point.remaining), 1);
+  const completionValues = points.map((point) => 100 - Math.round(point.remaining / maxRemaining * 100));
+  const sampleSize = Math.min(5, completionValues.length);
+  if (sampleSize === completionValues.length) {
+    return completionValues;
   }
-  if (["\u5DF2\u53D1\u5E03", "released", "done"].includes(normalized)) {
-    return "is-done";
+  const sampled = [];
+  for (let index = 0; index < sampleSize; index += 1) {
+    const pointIndex = Math.round(index * (completionValues.length - 1) / Math.max(1, sampleSize - 1));
+    sampled.push(completionValues[pointIndex]);
   }
-  return "is-neutral";
+  return sampled;
+}
+function cssEscape(value) {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(value);
+  }
+  return value.replace(/([#.;?+*~':"!^$\[\]()=>|\/@])/g, "\\$1");
 }
 function updateChecklistTaskStatus(content, task, status) {
   const lines = content.split(/\r?\n/);
@@ -1261,6 +1522,63 @@ function updateChecklistTaskStatus(content, task, status) {
   const nextText = status === "doing" ? `${rawText} \u{1F6A7}` : rawText;
   lines[index] = `${match[1]}${nextMarker}${match[3]}${nextText}`;
   return lines.join("\n");
+}
+function updateVersionStatusInFrontmatter(content) {
+  if (!content.startsWith("---")) {
+    return content;
+  }
+  const lines = content.split(/\r?\n/);
+  let frontmatterEnd = -1;
+  for (let index = 1; index < lines.length; index += 1) {
+    if (lines[index].trim() === "---") {
+      frontmatterEnd = index;
+      break;
+    }
+  }
+  if (frontmatterEnd === -1) {
+    return content;
+  }
+  const derivedStatus = deriveVersionStatusFromChecklist(lines.slice(frontmatterEnd + 1));
+  if (!derivedStatus) {
+    return content;
+  }
+  const statusIndex = lines.findIndex((line, index) => index > 0 && index < frontmatterEnd && /^status\s*:/i.test(line));
+  if (statusIndex !== -1) {
+    lines[statusIndex] = `status: ${derivedStatus}`;
+  } else {
+    lines.splice(frontmatterEnd, 0, `status: ${derivedStatus}`);
+  }
+  return lines.join("\n");
+}
+function deriveVersionStatusFromChecklist(lines) {
+  let total = 0;
+  let done = 0;
+  let doing = 0;
+  for (const line of lines) {
+    const match = line.match(/^\s*-\s\[([ xX])\]\s+(.+)$/);
+    if (!match) {
+      continue;
+    }
+    total += 1;
+    const rawText = match[2].trim();
+    if (match[1].toLowerCase() === "x") {
+      done += 1;
+      continue;
+    }
+    if (rawText.includes("\u{1F6A7}")) {
+      doing += 1;
+    }
+  }
+  if (total === 0) {
+    return null;
+  }
+  if (done === total) {
+    return "released";
+  }
+  if (doing > 0 || done > 0) {
+    return "developing";
+  }
+  return "planned";
 }
 
 // src/main.ts

@@ -11,18 +11,65 @@
 - `docs/DEPLOY.md`
 - `docs/RELEASE.md`
 - `demo/README.md`
+- `docs/releases/<version>.md`
+- `Projects/obsidian-project-hub/**`
 - `demo/Projects/**`
 
 ## 发布步骤
 
 1. 更新功能代码
-2. 运行 `npm.cmd run build`
-3. 更新版本号
-4. 更新 README 中的功能范围和安装说明
+2. 执行 `npm.cmd run version:bump -- <version>`
+3. 更新 README 中的功能范围和安装说明
+4. 同步更新当前项目数据 `Projects/obsidian-project-hub/**`
 5. 同步更新 demo 数据，确保可以直接复制到 Vault 使用
-6. 更新部署说明中新增或变更的步骤
-7. 记录本版本新增能力、限制和已知风险
-8. 在真实 Vault 中完成回归验证
+6. 填写 `docs/releases/<version>.md`
+7. 更新部署说明中新增或变更的步骤
+8. 执行 `npm.cmd run release`
+9. 在真实 Vault 中完成回归验证
+
+## 发布记录要求
+
+每个版本必须新增一个对应文件：`docs/releases/<version>.md`。
+
+该文件至少要包含：
+
+- `Checklist`
+- `Added`
+- `Changed`
+- `Fixed`
+- `Notes`
+
+其中 `Checklist` 必须勾选这些项目：
+
+- `README.md`
+- `docs/DEPLOY.md`
+- `docs/RELEASE.md`
+- `demo/README.md`
+- `Projects/obsidian-project-hub/**`
+- `demo/Projects/**`
+
+`npm.cmd run release:check` 会自动验证这些项，缺一项就阻止发布。
+
+## 版本升级脚本
+
+执行：
+
+```powershell
+npm.cmd run version:bump -- 0.4.2
+```
+
+这个脚本会自动：
+
+- 更新 `package.json` 中的版本号
+- 更新 `manifest.json` 中的版本号
+- 为 `versions.json` 新增当前版本对应的 `minAppVersion`
+- 生成 `docs/releases/0.4.2.md` 模板
+
+如果需要显式指定最低 Obsidian 版本：
+
+```powershell
+npm.cmd run version:bump -- 0.4.2 1.5.0
+```
 
 ## 每次版本至少要确认的用户可见能力
 
@@ -41,6 +88,14 @@
 
 ```md
 ## x.y.z
+
+### Checklist
+- [x] README.md
+- [x] docs/DEPLOY.md
+- [x] docs/RELEASE.md
+- [x] demo/README.md
+- [x] Projects/obsidian-project-hub/**
+- [x] demo/Projects/**
 
 ### Added
 - 新增能力

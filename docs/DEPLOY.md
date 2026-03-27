@@ -18,6 +18,49 @@ npm.cmd run dev
 npm.cmd run build
 ```
 
+## 推荐发布命令
+
+```powershell
+npm.cmd run release
+```
+
+如果是准备一个新版本，先执行：
+
+```powershell
+npm.cmd run version:bump -- 0.4.2
+```
+
+再补完 `docs/releases/0.4.2.md` 中的内容与勾选项，然后执行：
+
+```powershell
+npm.cmd run release
+```
+
+这个命令会自动完成三件事：
+
+1. 构建插件产物
+2. 检查版本号与发布文档是否同步
+3. 自动部署到本地 Obsidian Vault，包括：
+    - 插件文件 `main.js`、`manifest.json`、`styles.css`
+    - 当前项目数据 `Projects/obsidian-project-hub/**`
+    - demo 数据 `demo/Projects/**`
+
+首次执行前，先在仓库根目录创建本地配置文件：
+
+```powershell
+Copy-Item .\obsidian-project-hub.deploy.example.json .\obsidian-project-hub.deploy.local.json
+```
+
+然后编辑 `obsidian-project-hub.deploy.local.json`，至少填写：
+
+```json
+{
+   "vaultPath": "C:/path/to/YourVault"
+}
+```
+
+当前仓库已经生成本地配置文件，并指向检测到的 Vault：`C:/wubh/note/ingenico`。
+
 打包产物为项目根目录中的：
 
 - `main.js`
@@ -32,7 +75,7 @@ npm.cmd run build
 <Vault>/.obsidian/plugins/obsidian-project-hub/
 ```
 
-将下列文件复制到该目录：
+自动部署脚本会将下列文件复制到该目录：
 
 - `main.js`
 - `manifest.json`
@@ -66,16 +109,15 @@ Copy-Item .\main.js, .\manifest.json, .\styles.css -Destination $target -Force
 
 ## 发布前检查
 
-1. 运行 `npm.cmd run build`
-2. 确认 `manifest.json`、`package.json`、`versions.json` 版本号一致
-3. 确认 `README.md`、发布文档和 `demo/` 已更新
-4. 在一个真实 Vault 中验证以下流程：
+1. 执行 `npm.cmd run release`
+2. 确认 `docs/releases/<version>.md` 已创建并勾选完成
+3. 在一个真实 Vault 中验证以下流程：
    - 打开 Dashboard
    - 快速创建任务
    - 拖拽 Kanban 卡片
    - 查看版本中心
    - 查看 Roadmap
-   - 复制 `demo/Projects` 后可以直接使用
+   - 当前项目和 `demo/Projects` 都已同步到 Vault 并可直接使用
 
 ## 建议的发布包内容
 
