@@ -4,6 +4,7 @@ import { CreateTaskModal } from "../modals/create-task-modal";
 import { BurndownPoint, ProjectRecord, TaskRecord, VersionRecord } from "../types";
 
 export const PROJECT_HUB_VIEW_TYPE = "project-hub-dashboard";
+const ALL_PROJECTS_VALUE = "__all_projects__";
 
 type StatusOption = TaskRecord["status"];
 
@@ -67,22 +68,18 @@ export class ProjectHubDashboardView extends ItemView {
   }
 
   async openQuickCreateTask(): Promise<void> {
-    if (!this.selectedProject) {
-      new Notice("请先选择一个项目");
-      return;
-    }
-
-    const projectRecord = this.store.getProjects().find((item) => item.project === this.selectedProject);
-    if (!projectRecord) {
+    const projects = this.store.getProjects();
+    if (projects.length === 0) {
       new Notice("未找到项目目录，无法创建任务");
       return;
     }
 
     new CreateTaskModal({
       app: this.app,
-      project: this.selectedProject,
-      projectPath: projectRecord.projectPath,
-      versions: this.store.getVersions(this.selectedProject),
+      projects,
+      versions: this.store.getVersions(),
+      initialProject: this.selectedProject === ALL_PROJECTS_VALUE ? null : this.selectedProject,
+      initialVersion: this.selectedVersion,
       onCreated: async () => {
         await this.store.rebuild();
       }
@@ -159,6 +156,32 @@ export class ProjectHubDashboardView extends ItemView {
     this.renderTaskKanban(this.kanbanEl, projects, versions);
   }
 
+  private async syncVersionStatuses(): Promise<number> {
+    let syncedCount = 0;
+
+    for (const version of this.store.getVersions()) {
+      if (!version.status) {
+        continue;
+      }
+
+      const abstractFile = this.app.vault.getAbstractFileByPath(version.filePath);
+      if (!(abstractFile instanceof TFile)) {
+        continue;
+      }
+
+      const content = await this.app.vault.cachedRead(abstractFile);
+      const nextContent = updateVersionStatusInFrontmatter(content, version.status);
+      if (nextContent === content) {
+        continue;
+      }
+
+      await this.app.vault.modify(abstractFile, nextContent);
+      syncedCount += 1;
+    }
+
+    return syncedCount;
+  }
+
   private ensureLayout(container: HTMLElement): void {
     const hostsMissing = !this.headerEl || !this.summaryEl || !this.boardEl || !this.kanbanEl;
     const hostsDetached = Boolean(
@@ -188,6 +211,15 @@ export class ProjectHubDashboardView extends ItemView {
     const { project, version } = this.pendingSelection;
     this.pendingSelection = null;
 
+    if (project === ALL_PROJECTS_VALUE) {
+      this.selectedProject = ALL_PROJECTS_VALUE;
+      if (version && versions.some((item) => item.version === version)) {
+        this.selectedVersion = version;
+      }
+      this.preferredSelection = { project, version };
+      return;
+    }
+
     if (project && projects.some((item) => item.project === project)) {
       this.selectedProject = project;
       if (version && versions.some((item) => item.project === project && item.version === version)) {
@@ -204,12 +236,20 @@ export class ProjectHubDashboardView extends ItemView {
       return;
     }
 
-    if (this.preferredSelection?.project && projects.some((project) => project.project === this.preferredSelection.project)) {
-      this.selectedProject = this.preferredSelection.project;
+    const preferredProject = this.preferredSelection?.project;
+    if (preferredProject === ALL_PROJECTS_VALUE) {
+      this.selectedProject = ALL_PROJECTS_VALUE;
+    }
+
+    if (preferredProject && projects.some((project) => project.project === preferredProject)) {
+      this.selectedProject = preferredProject;
     }
 
     const sortedProjects = this.sortProjects(projects, versions);
-    if (!this.selectedProject || !projects.some((project) => project.project === this.selectedProject)) {
+    if (
+      !this.selectedProject
+      || (this.selectedProject !== ALL_PROJECTS_VALUE && !projects.some((project) => project.project === this.selectedProject))
+    ) {
       this.selectedProject = sortedProjects[0]?.project ?? null;
     }
 
@@ -224,7 +264,7 @@ export class ProjectHubDashboardView extends ItemView {
     }
 
     if (!this.selectedVersion || !projectVersions.some((version) => version.version === this.selectedVersion)) {
-      this.selectedVersion = projectVersions[0]?.version ?? null;
+      this.selectedVersion = null;
     }
   }
 
@@ -238,15 +278,18 @@ export class ProjectHubDashboardView extends ItemView {
     });
 
     const actions = header.createDiv({ cls: "project-hub-dashboard-actions" });
-    const createButton = actions.createEl("button", { cls: "mod-cta", text: "快速新建任务" });
-    createButton.addEventListener("click", async () => {
-      await this.openQuickCreateTask();
-    });
-
     const refreshButton = actions.createEl("button", { text: "刷新" });
     refreshButton.addEventListener("click", async () => {
       await this.store.rebuild();
-      new Notice("Project Hub 数据已刷新");
+      const syncedCount = await this.syncVersionStatuses();
+      if (syncedCount > 0) {
+        await this.store.rebuild();
+      }
+      new Notice(
+        syncedCount > 0
+          ? `Project Hub 数据已刷新，并同步 ${syncedCount} 个版本状态`
+          : "Project Hub 数据已刷新"
+      );
     });
   }
 
@@ -258,17 +301,16 @@ export class ProjectHubDashboardView extends ItemView {
 
     const today = todayString();
     const completedTasks = tasks.filter((task) => task.status === "done").length;
-    const doingTasks = tasks.filter((task) => task.status === "doing").length;
+    const inProgressTasks = tasks.filter((task) => task.status === "in-progress").length;
     const delayedTasks = tasks.filter((task) => isTaskOverdue(task, today)).length;
     const completionRate = tasks.length === 0 ? 0 : Math.round((completedTasks / tasks.length) * 100);
-
     const statsGrid = section.createDiv({ cls: "project-hub-summary-grid" });
     for (const item of [
       [String(projects.length), "项目数"],
       [String(versions.length), "版本数"],
       [String(tasks.length), "总任务数"],
       [String(completedTasks), "完成任务"],
-      [String(doingTasks), "进行中任务"],
+      [String(inProgressTasks), "进行中任务"],
       [String(delayedTasks), "延期任务"]
     ]) {
       const stat = statsGrid.createDiv({ cls: "project-hub-summary-item" });
@@ -304,9 +346,8 @@ export class ProjectHubDashboardView extends ItemView {
     const grid = boardRoot.createDiv({ cls: "project-hub-version-grid" });
 
     const projectHeader = grid.createDiv({ cls: "project-hub-grid-header project-hub-grid-header-multiline" });
-    projectHeader.createDiv({ cls: "project-hub-grid-header-line", text: "项目" });
-    projectHeader.createDiv({ cls: "project-hub-grid-header-line", text: "版本总数" });
-    for (const headerText of ["Todo", "Doing", "Done"]) {
+    projectHeader.createDiv({ cls: "project-hub-grid-header-line", text: "Project" });
+    for (const headerText of ["Todo", "In Progress", "Done"]) {
       grid.createDiv({ cls: "project-hub-grid-header", text: headerText });
     }
 
@@ -332,7 +373,7 @@ export class ProjectHubDashboardView extends ItemView {
       text: `版本总数：${projectVersions.length}`
     });
 
-    for (const status of ["todo", "doing", "done"] as const) {
+    for (const status of ["todo", "in-progress", "done"] as const) {
       const cell = row.createDiv({ cls: "project-hub-grid-cell" });
       this.renderVersionGroup(cell, project.project, status, projectVersions, tasks);
     }
@@ -381,7 +422,7 @@ export class ProjectHubDashboardView extends ItemView {
   private renderVersionGroup(
     container: HTMLElement,
     project: string,
-    status: "todo" | "doing" | "done",
+    status: "todo" | "in-progress" | "done",
     versions: VersionRecord[],
     tasks: TaskRecord[]
   ): void {
@@ -434,14 +475,18 @@ export class ProjectHubDashboardView extends ItemView {
       cls: "project-hub-version-date",
       text: `${formatShortDate(version.start)} ~ ${formatShortDate(version.end)}`
     });
+
+    const taskEffort = versionTasks.reduce((sum, task) => sum + (task.effort ?? 0), 0);
+    const versionEffort = version.effort ?? taskEffort;
+    const effortLabel = versionEffort > 0 ? ` · ${versionEffort}h` : "";
     card.createDiv({
       cls: "project-hub-version-summary",
-      text: overdue > 0 ? `${progress}% · 延期 ${overdue}` : `${progress}% · 按期`
+      text: overdue > 0 ? `${progress}%${effortLabel} · 延期 ${overdue}` : `${progress}%${effortLabel} · 按期`
     });
 
     card.setAttr(
       "title",
-      `任务数: ${versionTasks.length}\n负责人: ${assignees.join(", ") || "未分配"}\n双击打开版本文件`
+      `任务数: ${versionTasks.length}\n工时: ${versionEffort}h\n负责人: ${assignees.join(", ") || "未分配"}\n双击打开版本文件`
     );
 
     card.addEventListener("click", () => {
@@ -467,21 +512,27 @@ export class ProjectHubDashboardView extends ItemView {
     const section = container.createDiv({ cls: "project-hub-task-kanban" });
 
     const title = section.createDiv({ cls: "project-hub-section-title" });
-    title.setText("版本任务看板 · Version Task Kanban");
+    title.setText("任务看板 · Task Kanban");
 
     const filters = section.createDiv({ cls: "project-hub-filters" });
+    const actionGroup = filters.createDiv({ cls: "project-hub-filter-actions" });
+    const createButton = actionGroup.createEl("button", { cls: "mod-cta", text: "快速新建任务" });
+    createButton.addEventListener("click", async () => {
+      await this.openQuickCreateTask();
+    });
+
     const projectGroup = filters.createDiv({ cls: "project-hub-filter-group" });
     projectGroup.createEl("label", { text: "Project:" });
     const projectSelect = projectGroup.createEl("select");
 
+    projectSelect.createEl("option", { value: ALL_PROJECTS_VALUE, text: "全部项目" });
     for (const project of this.sortProjects(projects, versions)) {
       projectSelect.createEl("option", { value: project.project, text: project.project });
     }
-    projectSelect.value = this.selectedProject ?? "";
+    projectSelect.value = this.selectedProject ?? ALL_PROJECTS_VALUE;
     projectSelect.addEventListener("change", () => {
       this.selectedProject = projectSelect.value || null;
-      const projectVersions = this.getSortedVersionsForProject(versions, this.selectedProject);
-      this.selectedVersion = projectVersions[0]?.version ?? null;
+      this.selectedVersion = null;
       this.preferredSelection = {
         project: this.selectedProject,
         version: this.selectedVersion
@@ -493,6 +544,7 @@ export class ProjectHubDashboardView extends ItemView {
     versionGroup.createEl("label", { text: "Version:" });
     const versionSelect = versionGroup.createEl("select");
 
+    versionSelect.createEl("option", { value: "", text: "全部版本" });
     for (const version of this.getSortedVersionsForProject(versions, this.selectedProject)) {
       versionSelect.createEl("option", { value: version.version, text: version.version });
     }
@@ -506,21 +558,21 @@ export class ProjectHubDashboardView extends ItemView {
       this.renderSections();
     });
 
-    const selectedTasks = this.store.getTasks(this.selectedProject ?? undefined).filter((task) => {
-      if (!this.selectedVersion) {
-        return false;
-      }
-      return task.version === this.selectedVersion;
-    });
+    const selectedTasks = this.getKanbanTasks();
 
     const columns = section.createDiv({ cls: "project-hub-kanban-columns" });
     this.renderTaskColumn(columns, "todo", "TODO", selectedTasks.filter((task) => task.status === "todo"), true);
-    this.renderTaskColumn(columns, "doing", "DOING", selectedTasks.filter((task) => task.status === "doing"), true);
+    this.renderTaskColumn(columns, "in-progress", "IN PROGRESS", selectedTasks.filter((task) => task.status === "in-progress"), true);
     this.renderTaskColumn(columns, "done", "DONE", selectedTasks.filter((task) => task.status === "done"), true);
 
-    if (!this.selectedVersion) {
+    if (selectedTasks.length === 0) {
       columns.empty();
-      columns.createDiv({ cls: "project-hub-empty-state", text: "当前项目没有可用版本，请先创建版本文件。" });
+      columns.createDiv({
+        cls: "project-hub-empty-state",
+        text: this.selectedVersion
+          ? "当前筛选条件下没有任务。"
+          : "当前筛选条件下没有任务，可切换项目或版本查看。"
+      });
     }
   }
 
@@ -577,7 +629,7 @@ export class ProjectHubDashboardView extends ItemView {
     const card = container.createDiv({ cls: "project-hub-task-card" });
     card.dataset.taskId = task.id;
     card.dataset.status = task.status;
-    card.style.borderLeftColor = task.priority === "high" ? "#dc2626" : "#e2e8f0";
+    card.style.borderLeftColor = getTaskPriorityColor(task.priority);
 
     if (draggable) {
       card.setAttribute("draggable", "true");
@@ -601,11 +653,17 @@ export class ProjectHubDashboardView extends ItemView {
       text: task.text
     });
 
+    const metaParts = [
+      `@${task.owner ?? "未分配"}`,
+      formatTaskPriority(task.priority),
+      task.due ?? "未设置",
+      task.effort ? `${task.effort}h` : null
+    ].filter((part): part is string => Boolean(part));
     const meta = card.createDiv({
       cls: "project-hub-task-meta",
-      text: `@${task.owner ?? "未分配"} · ${task.due ?? "未设置"}`
+      text: metaParts.join(" · ")
     });
-    meta.setAttr("title", task.sourceType === "ops-task" ? "来源 Ops" : `来源 ${task.source}`);
+    meta.setAttr("title", `来源 ${task.source}`);
 
     card.setAttr("title", "拖拽可变更状态，双击打开任务源文件");
     card.addEventListener("dblclick", async () => {
@@ -687,8 +745,22 @@ export class ProjectHubDashboardView extends ItemView {
 
   private getSortedVersionsForProject(versions: VersionRecord[], project: string | null): VersionRecord[] {
     return versions
-      .filter((version) => !project || version.project === project)
+      .filter((version) => !project || project === ALL_PROJECTS_VALUE || version.project === project)
       .sort(compareVersionRecordsDesc);
+  }
+
+  private getKanbanTasks(): TaskRecord[] {
+    const projectFilter = this.selectedProject && this.selectedProject !== ALL_PROJECTS_VALUE
+      ? this.selectedProject
+      : undefined;
+
+    return this.store.getTasks(projectFilter).filter((task) => {
+      if (!this.selectedVersion) {
+        return true;
+      }
+
+      return task.version === this.selectedVersion;
+    });
   }
 
   private async handleDrop(targetStatus: string): Promise<void> {
@@ -698,7 +770,10 @@ export class ProjectHubDashboardView extends ItemView {
       return;
     }
 
-    const task = this.store.getTasks(this.selectedProject ?? undefined).find((item) => item.id === taskId);
+    const projectFilter = this.selectedProject && this.selectedProject !== ALL_PROJECTS_VALUE
+      ? this.selectedProject
+      : undefined;
+    const task = this.store.getTasks(projectFilter).find((item) => item.id === taskId);
     if (!task) {
       return;
     }
@@ -766,10 +841,10 @@ export class ProjectHubDashboardView extends ItemView {
   }
 }
 
-function normalizeVersionBoardStatus(status?: string): "todo" | "doing" | "done" {
+function normalizeVersionBoardStatus(status?: string): "todo" | "in-progress" | "done" {
   const normalized = (status ?? "").trim().toLowerCase();
-  if (["doing", "developing", "active", "开发中"].includes(normalized)) {
-    return "doing";
+  if (["in progress", "in-progress", "doing", "developing", "active", "开发中"].includes(normalized)) {
+    return "in-progress";
   }
   if (["released", "done", "已发布"].includes(normalized)) {
     return "done";
@@ -808,8 +883,42 @@ function todayString(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function formatTaskPriority(priority?: string): string {
+  const normalized = (priority ?? "").trim().toLowerCase();
+  if (["urgent", "critical"].includes(normalized)) {
+    return "紧急";
+  }
+  if (["high"].includes(normalized)) {
+    return "高优";
+  }
+  if (["medium", "normal"].includes(normalized)) {
+    return "中优";
+  }
+  if (["low"].includes(normalized)) {
+    return "低优";
+  }
+  return "普通";
+}
+
+function getTaskPriorityColor(priority?: string): string {
+  const normalized = (priority ?? "").trim().toLowerCase();
+  if (["urgent", "critical"].includes(normalized)) {
+    return "#991b1b";
+  }
+  if (normalized === "high") {
+    return "#dc2626";
+  }
+  if (["medium", "normal"].includes(normalized)) {
+    return "#f59e0b";
+  }
+  if (normalized === "low") {
+    return "#10b981";
+  }
+  return "#e2e8f0";
+}
+
 function isTaskOverdue(task: TaskRecord, today: string): boolean {
-  return task.status !== "done" && Boolean(task.due) && task.due < today;
+  return task.status !== "done" && typeof task.due === "string" && task.due < today;
 }
 
 function buildMiniTrendValues(points: BurndownPoint[], completionRate: number): number[] {
@@ -855,15 +964,21 @@ function updateChecklistTaskStatus(content: string, task: TaskRecord, status: st
 
   const rawText = match[4]
     .replace(/🚧/g, "")
+    .replace(/✅\s*\d{4}-\d{2}-\d{2}/g, "")
     .replace(/\s+/g, " ")
     .trim();
   const nextMarker = status === "done" ? "x" : " ";
-  const nextText = status === "doing" ? `${rawText} 🚧` : rawText;
+  let nextText = rawText;
+  if (status === "in-progress") {
+    nextText = `${rawText} 🚧`;
+  } else if (status === "done") {
+    nextText = `${rawText} ✅ ${todayString()}`;
+  }
   lines[index] = `${match[1]}${nextMarker}${match[3]}${nextText}`;
   return lines.join("\n");
 }
 
-function updateVersionStatusInFrontmatter(content: string): string {
+function updateVersionStatusInFrontmatter(content: string, status?: string): string {
   if (!content.startsWith("---")) {
     return content;
   }
@@ -881,7 +996,7 @@ function updateVersionStatusInFrontmatter(content: string): string {
     return content;
   }
 
-  const derivedStatus = deriveVersionStatusFromChecklist(lines.slice(frontmatterEnd + 1));
+  const derivedStatus = status ?? deriveVersionStatusFromChecklist(lines.slice(frontmatterEnd + 1));
   if (!derivedStatus) {
     return content;
   }
@@ -899,7 +1014,7 @@ function updateVersionStatusInFrontmatter(content: string): string {
 function deriveVersionStatusFromChecklist(lines: string[]): string | null {
   let total = 0;
   let done = 0;
-  let doing = 0;
+  let inProgress = 0;
 
   for (const line of lines) {
     const match = line.match(/^\s*-\s\[([ xX])\]\s+(.+)$/);
@@ -914,7 +1029,7 @@ function deriveVersionStatusFromChecklist(lines: string[]): string | null {
       continue;
     }
     if (rawText.includes("🚧")) {
-      doing += 1;
+      inProgress += 1;
     }
   }
 
@@ -922,10 +1037,10 @@ function deriveVersionStatusFromChecklist(lines: string[]): string | null {
     return null;
   }
   if (done === total) {
-    return "released";
+    return "done";
   }
-  if (doing > 0 || done > 0) {
-    return "developing";
+  if (inProgress > 0 || done > 0) {
+    return "in-progress";
   }
-  return "planned";
+  return "todo";
 }

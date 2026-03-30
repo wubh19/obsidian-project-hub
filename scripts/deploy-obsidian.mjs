@@ -30,10 +30,6 @@ async function main() {
     await copyProjectsFolder(path.join(repoRoot, "Projects"), vaultProjectsPath, "managed project");
   }
 
-  if (config.copyDemoProjects !== false) {
-    await copyProjectsFolder(path.join(repoRoot, "demo", "Projects"), vaultProjectsPath, "demo project");
-  }
-
   console.log(`[deploy] Vault sync complete: ${vaultPath}`);
 }
 

@@ -42,8 +42,7 @@ npm.cmd run release
 2. 检查版本号与发布文档是否同步
 3. 自动部署到本地 Obsidian Vault，包括：
     - 插件文件 `main.js`、`manifest.json`、`styles.css`
-    - 当前项目数据 `Projects/obsidian-project-hub/**`
-    - demo 数据 `demo/Projects/**`
+   - 当前项目数据 `Projects/obsidian-project-hub/**`
 
 首次执行前，先在仓库根目录创建本地配置文件：
 
@@ -88,17 +87,6 @@ Copy-Item .\obsidian-project-hub.deploy.example.json .\obsidian-project-hub.depl
 3. 关闭 `Restricted mode`（如果尚未关闭）
 4. 启用 `Project Hub`
 
-## 导入 Demo 数据
-
-如果你想直接体验插件效果，可以把仓库里的 `demo/Projects` 复制到 Vault 根目录。
-
-```powershell
-$vault = "C:\path\to\YourVault"
-Copy-Item .\demo\Projects -Destination $vault -Recurse -Force
-```
-
-复制后，Vault 根目录下会出现 `Projects/`，插件可以立即识别。
-
 ## Windows 快速复制示例
 
 ```powershell
@@ -117,7 +105,7 @@ Copy-Item .\main.js, .\manifest.json, .\styles.css -Destination $target -Force
    - 拖拽 Kanban 卡片
    - 查看版本中心
    - 查看 Roadmap
-   - 当前项目和 `demo/Projects` 都已同步到 Vault 并可直接使用
+   - 当前项目数据已同步到 Vault 并可直接使用
 
 ## 建议的发布包内容
 

@@ -1,7 +1,7 @@
 {
   "id": "obsidian-project-hub",
   "name": "Project Hub",
-  "version": "0.4.1",
+  "version": "0.4.13",
   "minAppVersion": "1.5.0",
   "description": "Manage projects, versions, and tasks in Obsidian with Markdown and YAML.",
   "author": "GitHub Copilot",

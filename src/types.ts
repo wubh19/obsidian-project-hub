@@ -1,6 +1,6 @@
-export type ProjectStatus = "active" | "planned" | "paused" | "done" | "archived" | string;
-export type TaskStatus = "todo" | "doing" | "done" | string;
-export type VersionStatus = "planned" | "developing" | "released" | string;
+export type ProjectStatus = "todo" | "in-progress" | "done" | string;
+export type TaskStatus = "todo" | "in-progress" | "done" | string;
+export type VersionStatus = "todo" | "in-progress" | "done" | string;
 
 export interface BaseEntity {
   filePath: string;
@@ -27,6 +27,7 @@ export interface VersionRecord extends BaseEntity {
   start?: string;
   end?: string;
   releaseDate?: string;
+  effort?: number;
 }
 
 export interface TaskRecord extends BaseEntity {
@@ -40,8 +41,10 @@ export interface TaskRecord extends BaseEntity {
   status: TaskStatus;
   start?: string;
   due?: string;
+  completed?: string;
+  effort?: number;
   source: string;
-  sourceType: "version-task" | "ops-task";
+  sourceType: "version-task" | "task-file";
   lineNumber: number;
   rawText: string;
   text: string;
@@ -57,10 +60,12 @@ export interface RoadmapRecord extends BaseEntity {
 export interface ProjectStats {
   totalTasks: number;
   todoTasks: number;
-  doingTasks: number;
+  inProgressTasks: number;
   doneTasks: number;
   overdueTasks: number;
   completionRate: number;
+  totalEffort: number;
+  doneEffort: number;
 }
 
 export interface StatusBreakdownItem {
@@ -78,10 +83,12 @@ export interface VersionProgress {
   version: VersionRecord;
   totalTasks: number;
   todoTasks: number;
-  doingTasks: number;
+  inProgressTasks: number;
   doneTasks: number;
   overdueTasks: number;
   completionRate: number;
+  totalEffort: number;
+  doneEffort: number;
 }
 
 export interface BurndownPoint {

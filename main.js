@@ -69,7 +69,7 @@ function inferProjectFromPath(filePath) {
     };
   }
   const containerIndex = segments.findIndex(
-    (segment, index) => index > 0 && ["Versions", "Ops", "Docs"].includes(segment)
+    (segment, index) => index > 0 && ["Versions", "Docs"].includes(segment)
   );
   if (containerIndex !== -1) {
     return {
@@ -131,7 +131,7 @@ function stripFrontmatter(content) {
 }
 function extractOwner(text) {
   var _a, _b;
-  return (_b = (_a = text.match(/@([^\s🔥⚠️🚧📅]+)/u)) == null ? void 0 : _a[1]) == null ? void 0 : _b.trim();
+  return (_b = (_a = text.match(/@([^\s🔥⚠️🚧📅✅⏱]+)/u)) == null ? void 0 : _a[1]) == null ? void 0 : _b.trim();
 }
 function extractPriority(text) {
   if (text.includes("\u{1F525}")) {
@@ -144,10 +144,18 @@ function extractPriority(text) {
 }
 function extractDue(text) {
   var _a;
-  return (_a = text.match(/📅(\d{4}-\d{2}-\d{2})/)) == null ? void 0 : _a[1];
+  return (_a = text.match(/📅\s*(\d{4}-\d{2}-\d{2})/)) == null ? void 0 : _a[1];
+}
+function extractCompleted(text) {
+  var _a;
+  return (_a = text.match(/✅\s*(\d{4}-\d{2}-\d{2})/)) == null ? void 0 : _a[1];
+}
+function extractEffort(text) {
+  const match = text.match(/⏱(?:️)?\s*([\d.]+)h/i);
+  return match ? parseFloat(match[1]) : void 0;
 }
 function extractTaskTitle(text) {
-  return text.replace(/@([^\s🔥⚠️🚧📅]+)/gu, "").replace(/[🔥⚠️🚧]/gu, "").replace(/📅\d{4}-\d{2}-\d{2}/g, "").replace(/\s+/g, " ").trim();
+  return text.replace(/@([^\s🔥⚠️🚧📅✅⏱]+)/gu, "").replace(/[🔥⚠️🚧]/gu, "").replace(/📅\s*\d{4}-\d{2}-\d{2}/g, "").replace(/✅\s*\d{4}-\d{2}-\d{2}/g, "").replace(/⏱(?:️)?\s*[\d.]+h/gi, "").replace(/\s+/g, " ").trim();
 }
 function parseChecklistTasks(content, file, project, projectPath, sourceType, source, version) {
   const { body, startLine } = stripFrontmatter(content);
@@ -161,7 +169,7 @@ function parseChecklistTasks(content, file, project, projectPath, sourceType, so
     }
     const rawText = match[2].trim();
     const done = match[1].toLowerCase() === "x";
-    const status = done ? "done" : rawText.includes("\u{1F6A7}") ? "doing" : "todo";
+    const status = done ? "done" : rawText.includes("\u{1F6A7}") ? "in-progress" : "todo";
     const title = extractTaskTitle(rawText);
     tasks.push({
       id: `${file.path}#L${startLine + index}`,
@@ -176,6 +184,8 @@ function parseChecklistTasks(content, file, project, projectPath, sourceType, so
       priority: extractPriority(rawText),
       status,
       due: extractDue(rawText),
+      completed: extractCompleted(rawText),
+      effort: extractEffort(rawText),
       source,
       sourceType,
       lineNumber: startLine + index,
@@ -210,6 +220,8 @@ function parseVersion(frontmatter, file, content) {
   if (!projectInfo.project || !projectInfo.projectPath || !version) {
     return null;
   }
+  const effortRaw = normalizeString(frontmatter.effort);
+  const effort = effortRaw ? parseFloat(effortRaw) : void 0;
   return {
     type: "version",
     filePath: file.path,
@@ -221,7 +233,8 @@ function parseVersion(frontmatter, file, content) {
     status: normalizeString(frontmatter.status),
     start: normalizeString(frontmatter.start),
     end: normalizeString(frontmatter.end),
-    releaseDate: (_a = normalizeString(frontmatter.release_date)) != null ? _a : normalizeString(frontmatter.end)
+    releaseDate: (_a = normalizeString(frontmatter.release_date)) != null ? _a : normalizeString(frontmatter.end),
+    effort: Number.isFinite(effort) ? effort : void 0
   };
 }
 function parseTask(frontmatter, file, content) {
@@ -248,7 +261,7 @@ function parseTask(frontmatter, file, content) {
     start: normalizeString(frontmatter.start),
     due: normalizeString(frontmatter.due),
     source: (_d = normalizeString(frontmatter.version)) != null ? _d : "legacy-task",
-    sourceType: normalizeString(frontmatter.version) ? "version-task" : "ops-task",
+    sourceType: normalizeString(frontmatter.version) ? "version-task" : "task-file",
     lineNumber: 1,
     rawText: taskText,
     text: taskText
@@ -318,16 +331,6 @@ async function parseMarkdownFile(app, file) {
           versionRecord.version
         ) : []
       };
-    case "ops":
-      if (!projectInfo.project || !projectInfo.projectPath) {
-        return { project: null, version: null, roadmap: null, tasks: [] };
-      }
-      return {
-        project: null,
-        version: null,
-        roadmap: null,
-        tasks: parseChecklistTasks(content, file, projectInfo.project, projectInfo.projectPath, "ops-task", "\u8FD0\u7EF4")
-      };
     case "task":
       return {
         project: null,
@@ -382,8 +385,11 @@ var ProjectStore = class {
     const files = this.app.vault.getMarkdownFiles();
     const parsed = await Promise.all(files.map((file) => parseMarkdownFile(this.app, file)));
     this.declaredProjects = parsed.map((item) => item.project).filter(isProject).sort(compareByPath);
-    this.versions = parsed.map((item) => item.version).filter(isVersion).sort(compareByPath);
     this.tasks = parsed.flatMap((item) => item.tasks).filter(isTask).sort(compareByPath);
+    this.versions = applyDerivedVersionStatuses(
+      parsed.map((item) => item.version).filter(isVersion).sort(compareByPath),
+      this.tasks
+    );
     this.roadmaps = parsed.map((item) => item.roadmap).filter(isRoadmap).sort(compareByPath);
     this.projects = buildProjectRecords(this.declaredProjects, this.versions, this.tasks, this.roadmaps);
     this.emitChange();
@@ -402,7 +408,6 @@ var ProjectStore = class {
     }
     if (parsed.version && isVersion(parsed.version)) {
       this.versions.push(parsed.version);
-      this.versions.sort(compareByPath);
     }
     if (parsed.tasks.length > 0) {
       this.tasks.push(...parsed.tasks.filter(isTask));
@@ -412,6 +417,7 @@ var ProjectStore = class {
       this.roadmaps.push(parsed.roadmap);
       this.roadmaps.sort(compareByPath);
     }
+    this.versions = applyDerivedVersionStatuses(this.versions.sort(compareByPath), this.tasks);
     this.projects = buildProjectRecords(this.declaredProjects, this.versions, this.tasks, this.roadmaps);
     this.emitChange();
   }
@@ -458,17 +464,27 @@ var ProjectStore = class {
     const tasks = this.getTasks(project);
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const todoTasks = tasks.filter((task) => task.status === "todo").length;
-    const doingTasks = tasks.filter((task) => task.status === "doing").length;
+    const inProgressTasks = tasks.filter((task) => task.status === "in-progress").length;
     const doneTasks = tasks.filter((task) => task.status === "done").length;
     const overdueTasks = tasks.filter((task) => task.status !== "done" && Boolean(task.due) && task.due < today).length;
     const totalTasks = tasks.length;
+    const totalEffort = tasks.reduce((sum, task) => {
+      var _a;
+      return sum + ((_a = task.effort) != null ? _a : 0);
+    }, 0);
+    const doneEffort = tasks.filter((task) => task.status === "done").reduce((sum, task) => {
+      var _a;
+      return sum + ((_a = task.effort) != null ? _a : 0);
+    }, 0);
     return {
       totalTasks,
       todoTasks,
-      doingTasks,
+      inProgressTasks,
       doneTasks,
       overdueTasks,
-      completionRate: totalTasks === 0 ? 0 : Math.round(doneTasks / totalTasks * 100)
+      completionRate: totalTasks === 0 ? 0 : Math.round(doneTasks / totalTasks * 100),
+      totalEffort,
+      doneEffort
     };
   }
   getStatusBreakdown(project) {
@@ -498,20 +514,30 @@ var ProjectStore = class {
       const versionTasks = this.getTasks(project).filter((task) => task.version === version.version);
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
       const todoTasks = versionTasks.filter((task) => task.status === "todo").length;
-      const doingTasks = versionTasks.filter((task) => task.status === "doing").length;
+      const inProgressTasks = versionTasks.filter((task) => task.status === "in-progress").length;
       const doneTasks = versionTasks.filter((task) => task.status === "done").length;
       const overdueTasks = versionTasks.filter(
         (task) => task.status !== "done" && Boolean(task.due) && task.due < today
       ).length;
       const totalTasks = versionTasks.length;
+      const totalEffort = versionTasks.reduce((sum, task) => {
+        var _a;
+        return sum + ((_a = task.effort) != null ? _a : 0);
+      }, 0);
+      const doneEffort = versionTasks.filter((task) => task.status === "done").reduce((sum, task) => {
+        var _a;
+        return sum + ((_a = task.effort) != null ? _a : 0);
+      }, 0);
       return {
         version,
         totalTasks,
         todoTasks,
-        doingTasks,
+        inProgressTasks,
         doneTasks,
         overdueTasks,
-        completionRate: totalTasks === 0 ? 0 : Math.round(doneTasks / totalTasks * 100)
+        completionRate: totalTasks === 0 ? 0 : Math.round(doneTasks / totalTasks * 100),
+        totalEffort,
+        doneEffort
       };
     });
   }
@@ -642,6 +668,33 @@ function buildProjectRecords(declaredProjects, versions, tasks, roadmaps) {
   }
   return [...projects.values()].sort(compareByPath);
 }
+function applyDerivedVersionStatuses(versions, tasks) {
+  return versions.map((version) => {
+    const derivedStatus = deriveVersionStatus(version, tasks);
+    if (!derivedStatus || derivedStatus === version.status) {
+      return version;
+    }
+    return {
+      ...version,
+      status: derivedStatus
+    };
+  });
+}
+function deriveVersionStatus(version, tasks) {
+  const versionTasks = tasks.filter(
+    (task) => task.project === version.project && task.version === version.version
+  );
+  if (versionTasks.length === 0) {
+    return version.status;
+  }
+  if (versionTasks.every((task) => task.status === "done")) {
+    return "done";
+  }
+  if (versionTasks.some((task) => task.status === "in-progress" || task.status === "done")) {
+    return "in-progress";
+  }
+  return "todo";
+}
 
 // src/views/dashboard-view.ts
 var import_obsidian2 = require("obsidian");
@@ -650,15 +703,18 @@ var import_obsidian2 = require("obsidian");
 var import_obsidian = require("obsidian");
 var CreateTaskModal = class extends import_obsidian.Modal {
   constructor(options) {
+    var _a, _b, _c;
     super(options.app);
+    this.project = "";
     this.version = "";
     this.title = "";
-    this.owner = "";
+    this.owner = "wubh";
     this.priority = "medium";
-    this.due = "";
-    this.project = options.project;
-    this.projectPath = (0, import_obsidian.normalizePath)(options.projectPath);
+    this.due = todayString();
+    this.projects = options.projects;
     this.versions = options.versions;
+    this.project = (_c = (_b = options.initialProject) != null ? _b : (_a = options.projects[0]) == null ? void 0 : _a.project) != null ? _c : "";
+    this.version = normalizeVersionValue(options.initialVersion);
     this.onCreated = options.onCreated;
   }
   onOpen() {
@@ -668,24 +724,52 @@ var CreateTaskModal = class extends import_obsidian.Modal {
     contentEl.createEl("h2", { text: "\u5FEB\u901F\u65B0\u5EFA\u4EFB\u52A1" });
     contentEl.createEl("p", {
       cls: "project-hub-modal-subtitle",
-      text: `\u9879\u76EE: ${this.project}`
+      text: "\u9879\u76EE\u3001\u7248\u672C\u3001\u8D1F\u8D23\u4EBA\u548C\u65E5\u671F\u90FD\u53EF\u4EE5\u5728\u8FD9\u91CC\u76F4\u63A5\u9009\u62E9\u3002"
     });
+    const projectSetting = new import_obsidian.Setting(contentEl).setName("\u9879\u76EE").setDesc("\u9009\u62E9\u4EFB\u52A1\u5F52\u5C5E\u7684\u9879\u76EE");
+    projectSetting.controlEl.empty();
+    const projectSelect = projectSetting.controlEl.createEl("select");
+    for (const project of this.projects) {
+      projectSelect.createEl("option", { value: project.project, text: project.project });
+    }
+    projectSelect.value = this.project;
     new import_obsidian.Setting(contentEl).setName("\u4EFB\u52A1\u6807\u9898").setDesc("\u7528\u4E8E\u751F\u6210\u4EFB\u52A1\u6587\u6863\u548C\u5361\u7247\u6807\u9898").addText((text) => {
       text.setPlaceholder("\u4F8B\u5982\uFF1A\u5347\u7EA7 JDK17").onChange((value) => {
         this.title = value.trim();
       });
     });
-    new import_obsidian.Setting(contentEl).setName("\u7248\u672C").setDesc("\u9009\u62E9\u7248\u672C\u5219\u5199\u5165\u7248\u672C\u6587\u4EF6\uFF1B\u4E0D\u9009\u5219\u5199\u5165 Ops/Ops.md").addDropdown((dropdown) => {
-      dropdown.addOption("", "\u8FD0\u7EF4\u4EFB\u52A1 (Ops)");
-      for (const version of this.versions) {
-        dropdown.addOption(version.version, version.version);
+    const versionSetting = new import_obsidian.Setting(contentEl).setName("\u7248\u672C").setDesc("\u5FC5\u987B\u9009\u62E9\u7248\u672C\uFF0C\u4EFB\u52A1\u4F1A\u5199\u5165\u5BF9\u5E94\u7248\u672C\u6587\u4EF6\u7684 Tasks \u533A\u5757");
+    versionSetting.controlEl.empty();
+    const versionSelect = versionSetting.controlEl.createEl("select");
+    const syncVersionOptions = () => {
+      versionSelect.empty();
+      const seenVersions = /* @__PURE__ */ new Set();
+      for (const version of this.getProjectVersions()) {
+        const normalizedVersion = normalizeVersionValue(version.version);
+        if (!normalizedVersion || seenVersions.has(normalizedVersion)) {
+          continue;
+        }
+        seenVersions.add(normalizedVersion);
+        versionSelect.createEl("option", { value: normalizedVersion, text: normalizedVersion });
       }
-      dropdown.onChange((value) => {
-        this.version = value;
-      });
+      if (seenVersions.size === 0) {
+        versionSelect.createEl("option", { value: "", text: "\u5F53\u524D\u9879\u76EE\u6682\u65E0\u7248\u672C" });
+      }
+      if (!seenVersions.has(this.version)) {
+        this.version = "";
+      }
+      versionSelect.value = this.version;
+    };
+    syncVersionOptions();
+    projectSelect.addEventListener("change", () => {
+      this.project = projectSelect.value;
+      syncVersionOptions();
+    });
+    versionSelect.addEventListener("change", () => {
+      this.version = normalizeVersionValue(versionSelect.value);
     });
     new import_obsidian.Setting(contentEl).setName("\u8D1F\u8D23\u4EBA").addText((text) => {
-      text.setPlaceholder("\u4F8B\u5982\uFF1A\u674E\u56DB").onChange((value) => {
+      text.setPlaceholder("\u4F8B\u5982\uFF1A\u674E\u56DB").setValue(this.owner).onChange((value) => {
         this.owner = value.trim();
       });
     });
@@ -698,10 +782,22 @@ var CreateTaskModal = class extends import_obsidian.Modal {
         this.priority = value;
       });
     });
-    new import_obsidian.Setting(contentEl).setName("\u622A\u6B62\u65E5\u671F").setDesc("\u683C\u5F0F\uFF1AYYYY-MM-DD").addText((text) => {
-      text.setPlaceholder("2026-03-30").onChange((value) => {
-        this.due = value.trim();
-      });
+    const dueSetting = new import_obsidian.Setting(contentEl).setName("\u622A\u6B62\u65E5\u671F").setDesc("\u70B9\u51FB\u9009\u62E9\u65E5\u671F");
+    dueSetting.controlEl.empty();
+    const dueInput = dueSetting.controlEl.createEl("input");
+    dueInput.type = "date";
+    dueInput.value = this.due;
+    dueInput.addClass("project-hub-native-date-input");
+    dueInput.addEventListener("change", () => {
+      this.due = dueInput.value.trim();
+    });
+    dueInput.addEventListener("click", () => {
+      var _a;
+      (_a = dueInput.showPicker) == null ? void 0 : _a.call(dueInput);
+    });
+    dueInput.addEventListener("focus", () => {
+      var _a;
+      (_a = dueInput.showPicker) == null ? void 0 : _a.call(dueInput);
     });
     new import_obsidian.Setting(contentEl).addButton((button) => {
       button.setButtonText("\u521B\u5EFA\u4EFB\u52A1").setCta().onClick(async () => {
@@ -715,8 +811,16 @@ var CreateTaskModal = class extends import_obsidian.Modal {
   }
   async submit() {
     var _a;
+    if (!this.project) {
+      new import_obsidian.Notice("\u8BF7\u9009\u62E9\u9879\u76EE");
+      return;
+    }
     if (!this.title) {
       new import_obsidian.Notice("\u4EFB\u52A1\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
+      return;
+    }
+    if (!this.version) {
+      new import_obsidian.Notice("\u8BF7\u9009\u62E9\u7248\u672C");
       return;
     }
     if (this.due && !/^\d{4}-\d{2}-\d{2}$/.test(this.due)) {
@@ -740,7 +844,15 @@ var CreateTaskModal = class extends import_obsidian.Modal {
     this.close();
   }
   async createTaskFile(input) {
-    const filePath = input.version ? (0, import_obsidian.normalizePath)(`${this.projectPath}/Versions/V${input.version}.md`) : (0, import_obsidian.normalizePath)(`${this.projectPath}/Ops/Ops.md`);
+    const normalizedVersion = normalizeVersionValue(input.version);
+    const projectPath = this.getProjectPath(input.project);
+    if (!projectPath) {
+      throw new Error(`Project path not found: ${input.project}`);
+    }
+    if (!normalizedVersion) {
+      throw new Error("Version is required when creating a task");
+    }
+    const filePath = (0, import_obsidian.normalizePath)(`${projectPath}/Versions/${normalizedVersion}.md`);
     await ensureFolder(this.app, (0, import_obsidian.normalizePath)(filePath.split("/").slice(0, -1).join("/")));
     const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
     const taskLine = buildTaskLine(input.title, input.owner, input.priority, input.due);
@@ -750,11 +862,24 @@ var CreateTaskModal = class extends import_obsidian.Modal {
       await this.app.vault.modify(abstractFile, nextContent);
       return filePath;
     }
-    const initialContent = input.version ? buildVersionFile(input.project, input.version, taskLine) : buildOpsFile(input.project, taskLine);
+    const initialContent = buildVersionFile(input.project, normalizedVersion, taskLine);
     await this.app.vault.create(filePath, initialContent);
     return filePath;
   }
+  getProjectVersions() {
+    return this.versions.filter((version) => version.project === this.project);
+  }
+  getProjectPath(project) {
+    const projectRecord = this.projects.find((item) => item.project === project);
+    return projectRecord ? (0, import_obsidian.normalizePath)(projectRecord.projectPath) : null;
+  }
 };
+function normalizeVersionValue(value) {
+  return (value != null ? value : "").trim().replace(/^V(?=\d)/i, "");
+}
+function todayString() {
+  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+}
 async function ensureFolder(app, folderPath) {
   const parts = folderPath.split("/");
   let current = "";
@@ -770,14 +895,30 @@ function buildTaskLine(title, owner, priority, due) {
     title,
     owner ? `@${owner}` : null,
     priority === "high" || priority === "urgent" ? "\u{1F525}" : priority === "medium" ? "\u26A0\uFE0F" : null,
-    due ? `\u{1F4C5}${due}` : null
+    due ? `\u{1F4C5} ${due}` : null
   ].filter(Boolean);
   return `- [ ] ${tokens.join(" ")}`;
 }
 function appendTaskLine(content, taskLine) {
-  if (/^##\s+Tasks\s*$/m.test(content)) {
-    return `${content.trimEnd()}
-${taskLine}
+  var _a;
+  const lines = content.split(/\r?\n/);
+  const tasksHeaderIndex = lines.findIndex((line) => /^##\s+Tasks\s*$/.test(line));
+  if (tasksHeaderIndex !== -1) {
+    let insertIndex = lines.length;
+    for (let index = tasksHeaderIndex + 1; index < lines.length; index += 1) {
+      if (/^##\s+/.test(lines[index])) {
+        insertIndex = index;
+        break;
+      }
+    }
+    const nextLines = [...lines];
+    const previousLine = (_a = nextLines[insertIndex - 1]) != null ? _a : "";
+    if (previousLine.trim().length !== 0) {
+      nextLines.splice(insertIndex, 0, "");
+      insertIndex += 1;
+    }
+    nextLines.splice(insertIndex, 0, taskLine);
+    return `${nextLines.join("\n").trimEnd()}
 `;
   }
   return `${content.trimEnd()}
@@ -793,7 +934,7 @@ function buildVersionFile(project, version, taskLine) {
     "type: version",
     `project: ${project}`,
     `version: ${version}`,
-    "status: planned",
+    "status: todo",
     "---",
     "",
     `# V${version}`,
@@ -804,24 +945,10 @@ function buildVersionFile(project, version, taskLine) {
     ""
   ].join("\n");
 }
-function buildOpsFile(project, taskLine) {
-  return [
-    "---",
-    "type: ops",
-    `project: ${project}`,
-    "---",
-    "",
-    "# \u8FD0\u7EF4\u4EFB\u52A1",
-    "",
-    "## Tasks",
-    "",
-    taskLine,
-    ""
-  ].join("\n");
-}
 
 // src/views/dashboard-view.ts
 var PROJECT_HUB_VIEW_TYPE = "project-hub-dashboard";
+var ALL_PROJECTS_VALUE = "__all_projects__";
 var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
   constructor(leaf, plugin, store) {
     super(leaf);
@@ -872,20 +999,17 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     this.unsubscribe = null;
   }
   async openQuickCreateTask() {
-    if (!this.selectedProject) {
-      new import_obsidian2.Notice("\u8BF7\u5148\u9009\u62E9\u4E00\u4E2A\u9879\u76EE");
-      return;
-    }
-    const projectRecord = this.store.getProjects().find((item) => item.project === this.selectedProject);
-    if (!projectRecord) {
+    const projects = this.store.getProjects();
+    if (projects.length === 0) {
       new import_obsidian2.Notice("\u672A\u627E\u5230\u9879\u76EE\u76EE\u5F55\uFF0C\u65E0\u6CD5\u521B\u5EFA\u4EFB\u52A1");
       return;
     }
     new CreateTaskModal({
       app: this.app,
-      project: this.selectedProject,
-      projectPath: projectRecord.projectPath,
-      versions: this.store.getVersions(this.selectedProject),
+      projects,
+      versions: this.store.getVersions(),
+      initialProject: this.selectedProject === ALL_PROJECTS_VALUE ? null : this.selectedProject,
+      initialVersion: this.selectedVersion,
       onCreated: async () => {
         await this.store.rebuild();
       }
@@ -947,6 +1071,26 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     }
     this.renderTaskKanban(this.kanbanEl, projects, versions);
   }
+  async syncVersionStatuses() {
+    let syncedCount = 0;
+    for (const version of this.store.getVersions()) {
+      if (!version.status) {
+        continue;
+      }
+      const abstractFile = this.app.vault.getAbstractFileByPath(version.filePath);
+      if (!(abstractFile instanceof import_obsidian2.TFile)) {
+        continue;
+      }
+      const content = await this.app.vault.cachedRead(abstractFile);
+      const nextContent = updateVersionStatusInFrontmatter(content, version.status);
+      if (nextContent === content) {
+        continue;
+      }
+      await this.app.vault.modify(abstractFile, nextContent);
+      syncedCount += 1;
+    }
+    return syncedCount;
+  }
   ensureLayout(container) {
     const hostsMissing = !this.headerEl || !this.summaryEl || !this.boardEl || !this.kanbanEl;
     const hostsDetached = Boolean(
@@ -967,6 +1111,14 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     }
     const { project, version } = this.pendingSelection;
     this.pendingSelection = null;
+    if (project === ALL_PROJECTS_VALUE) {
+      this.selectedProject = ALL_PROJECTS_VALUE;
+      if (version && versions.some((item) => item.version === version)) {
+        this.selectedVersion = version;
+      }
+      this.preferredSelection = { project, version };
+      return;
+    }
     if (project && projects.some((item) => item.project === project)) {
       this.selectedProject = project;
       if (version && versions.some((item) => item.project === project && item.version === version)) {
@@ -976,17 +1128,21 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     }
   }
   syncSelection(projects, versions) {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d;
     if (projects.length === 0) {
       this.selectedProject = null;
       this.selectedVersion = null;
       return;
     }
-    if (((_a = this.preferredSelection) == null ? void 0 : _a.project) && projects.some((project) => project.project === this.preferredSelection.project)) {
-      this.selectedProject = this.preferredSelection.project;
+    const preferredProject = (_a = this.preferredSelection) == null ? void 0 : _a.project;
+    if (preferredProject === ALL_PROJECTS_VALUE) {
+      this.selectedProject = ALL_PROJECTS_VALUE;
+    }
+    if (preferredProject && projects.some((project) => project.project === preferredProject)) {
+      this.selectedProject = preferredProject;
     }
     const sortedProjects = this.sortProjects(projects, versions);
-    if (!this.selectedProject || !projects.some((project) => project.project === this.selectedProject)) {
+    if (!this.selectedProject || this.selectedProject !== ALL_PROJECTS_VALUE && !projects.some((project) => project.project === this.selectedProject)) {
       this.selectedProject = (_c = (_b = sortedProjects[0]) == null ? void 0 : _b.project) != null ? _c : null;
     }
     const projectVersions = this.getSortedVersionsForProject(versions, this.selectedProject);
@@ -998,7 +1154,7 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
       return;
     }
     if (!this.selectedVersion || !projectVersions.some((version) => version.version === this.selectedVersion)) {
-      this.selectedVersion = (_f = (_e = projectVersions[0]) == null ? void 0 : _e.version) != null ? _f : null;
+      this.selectedVersion = null;
     }
   }
   renderDashboardHeader(container) {
@@ -1010,14 +1166,16 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
       text: "\u4E00\u5C4F\u770B\u5168\u5C40 \xB7 \u4E00\u5C4F\u7BA1\u6267\u884C | \u9879\u76EE\u884C\u5F0F\u7248\u672C\u770B\u677F + \u7248\u672C\u4EFB\u52A1\u770B\u677F"
     });
     const actions = header.createDiv({ cls: "project-hub-dashboard-actions" });
-    const createButton = actions.createEl("button", { cls: "mod-cta", text: "\u5FEB\u901F\u65B0\u5EFA\u4EFB\u52A1" });
-    createButton.addEventListener("click", async () => {
-      await this.openQuickCreateTask();
-    });
     const refreshButton = actions.createEl("button", { text: "\u5237\u65B0" });
     refreshButton.addEventListener("click", async () => {
       await this.store.rebuild();
-      new import_obsidian2.Notice("Project Hub \u6570\u636E\u5DF2\u5237\u65B0");
+      const syncedCount = await this.syncVersionStatuses();
+      if (syncedCount > 0) {
+        await this.store.rebuild();
+      }
+      new import_obsidian2.Notice(
+        syncedCount > 0 ? `Project Hub \u6570\u636E\u5DF2\u5237\u65B0\uFF0C\u5E76\u540C\u6B65 ${syncedCount} \u4E2A\u7248\u672C\u72B6\u6001` : "Project Hub \u6570\u636E\u5DF2\u5237\u65B0"
+      );
     });
   }
   renderGlobalStats(container, projects, versions, tasks) {
@@ -1025,9 +1183,9 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     const section = container.createDiv({ cls: "project-hub-dashboard-card project-hub-summary-card" });
     const title = section.createDiv({ cls: "project-hub-section-title" });
     title.setText("\u5168\u5C40\u7EDF\u8BA1\u533A \xB7 All Projects Summary");
-    const today = todayString();
+    const today = todayString2();
     const completedTasks = tasks.filter((task) => task.status === "done").length;
-    const doingTasks = tasks.filter((task) => task.status === "doing").length;
+    const inProgressTasks = tasks.filter((task) => task.status === "in-progress").length;
     const delayedTasks = tasks.filter((task) => isTaskOverdue(task, today)).length;
     const completionRate = tasks.length === 0 ? 0 : Math.round(completedTasks / tasks.length * 100);
     const statsGrid = section.createDiv({ cls: "project-hub-summary-grid" });
@@ -1036,7 +1194,7 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
       [String(versions.length), "\u7248\u672C\u6570"],
       [String(tasks.length), "\u603B\u4EFB\u52A1\u6570"],
       [String(completedTasks), "\u5B8C\u6210\u4EFB\u52A1"],
-      [String(doingTasks), "\u8FDB\u884C\u4E2D\u4EFB\u52A1"],
+      [String(inProgressTasks), "\u8FDB\u884C\u4E2D\u4EFB\u52A1"],
       [String(delayedTasks), "\u5EF6\u671F\u4EFB\u52A1"]
     ]) {
       const stat = statsGrid.createDiv({ cls: "project-hub-summary-item" });
@@ -1066,9 +1224,8 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     const boardRoot = section.createDiv({ cls: "project-hub-version-grid-container" });
     const grid = boardRoot.createDiv({ cls: "project-hub-version-grid" });
     const projectHeader = grid.createDiv({ cls: "project-hub-grid-header project-hub-grid-header-multiline" });
-    projectHeader.createDiv({ cls: "project-hub-grid-header-line", text: "\u9879\u76EE" });
-    projectHeader.createDiv({ cls: "project-hub-grid-header-line", text: "\u7248\u672C\u603B\u6570" });
-    for (const headerText of ["Todo", "Doing", "Done"]) {
+    projectHeader.createDiv({ cls: "project-hub-grid-header-line", text: "Project" });
+    for (const headerText of ["Todo", "In Progress", "Done"]) {
       grid.createDiv({ cls: "project-hub-grid-header", text: headerText });
     }
     for (const project of this.sortProjects(projects, versions)) {
@@ -1085,7 +1242,7 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
       cls: "project-hub-project-badge",
       text: `\u7248\u672C\u603B\u6570\uFF1A${projectVersions.length}`
     });
-    for (const status of ["todo", "doing", "done"]) {
+    for (const status of ["todo", "in-progress", "done"]) {
       const cell = row.createDiv({ cls: "project-hub-grid-cell" });
       this.renderVersionGroup(cell, project.project, status, projectVersions, tasks);
     }
@@ -1145,10 +1302,11 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     }
   }
   renderVersionCard(container, version, tasks) {
+    var _a;
     const versionTasks = tasks.filter((task) => task.project === version.project && task.version === version.version);
     const doneCount = versionTasks.filter((task) => task.status === "done").length;
     const progress = versionTasks.length === 0 ? 0 : Math.round(doneCount / versionTasks.length * 100);
-    const overdue = versionTasks.filter((task) => isTaskOverdue(task, todayString())).length;
+    const overdue = versionTasks.filter((task) => isTaskOverdue(task, todayString2())).length;
     const assignees = [...new Set(versionTasks.map((task) => task.owner).filter((owner) => Boolean(owner)))];
     const card = container.createDiv({ cls: "project-hub-version-card" });
     if (this.selectedProject === version.project && this.selectedVersion === version.version) {
@@ -1159,13 +1317,20 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
       cls: "project-hub-version-date",
       text: `${formatShortDate(version.start)} ~ ${formatShortDate(version.end)}`
     });
+    const taskEffort = versionTasks.reduce((sum, task) => {
+      var _a2;
+      return sum + ((_a2 = task.effort) != null ? _a2 : 0);
+    }, 0);
+    const versionEffort = (_a = version.effort) != null ? _a : taskEffort;
+    const effortLabel = versionEffort > 0 ? ` \xB7 ${versionEffort}h` : "";
     card.createDiv({
       cls: "project-hub-version-summary",
-      text: overdue > 0 ? `${progress}% \xB7 \u5EF6\u671F ${overdue}` : `${progress}% \xB7 \u6309\u671F`
+      text: overdue > 0 ? `${progress}%${effortLabel} \xB7 \u5EF6\u671F ${overdue}` : `${progress}%${effortLabel} \xB7 \u6309\u671F`
     });
     card.setAttr(
       "title",
       `\u4EFB\u52A1\u6570: ${versionTasks.length}
+\u5DE5\u65F6: ${versionEffort}h
 \u8D1F\u8D23\u4EBA: ${assignees.join(", ") || "\u672A\u5206\u914D"}
 \u53CC\u51FB\u6253\u5F00\u7248\u672C\u6587\u4EF6`
     );
@@ -1186,24 +1351,28 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     });
   }
   renderTaskKanban(container, projects, versions) {
-    var _a, _b, _c;
+    var _a, _b;
     container.empty();
     const section = container.createDiv({ cls: "project-hub-task-kanban" });
     const title = section.createDiv({ cls: "project-hub-section-title" });
-    title.setText("\u7248\u672C\u4EFB\u52A1\u770B\u677F \xB7 Version Task Kanban");
+    title.setText("\u4EFB\u52A1\u770B\u677F \xB7 Task Kanban");
     const filters = section.createDiv({ cls: "project-hub-filters" });
+    const actionGroup = filters.createDiv({ cls: "project-hub-filter-actions" });
+    const createButton = actionGroup.createEl("button", { cls: "mod-cta", text: "\u5FEB\u901F\u65B0\u5EFA\u4EFB\u52A1" });
+    createButton.addEventListener("click", async () => {
+      await this.openQuickCreateTask();
+    });
     const projectGroup = filters.createDiv({ cls: "project-hub-filter-group" });
     projectGroup.createEl("label", { text: "Project:" });
     const projectSelect = projectGroup.createEl("select");
+    projectSelect.createEl("option", { value: ALL_PROJECTS_VALUE, text: "\u5168\u90E8\u9879\u76EE" });
     for (const project of this.sortProjects(projects, versions)) {
       projectSelect.createEl("option", { value: project.project, text: project.project });
     }
-    projectSelect.value = (_a = this.selectedProject) != null ? _a : "";
+    projectSelect.value = (_a = this.selectedProject) != null ? _a : ALL_PROJECTS_VALUE;
     projectSelect.addEventListener("change", () => {
-      var _a2, _b2;
       this.selectedProject = projectSelect.value || null;
-      const projectVersions = this.getSortedVersionsForProject(versions, this.selectedProject);
-      this.selectedVersion = (_b2 = (_a2 = projectVersions[0]) == null ? void 0 : _a2.version) != null ? _b2 : null;
+      this.selectedVersion = null;
       this.preferredSelection = {
         project: this.selectedProject,
         version: this.selectedVersion
@@ -1213,6 +1382,7 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     const versionGroup = filters.createDiv({ cls: "project-hub-filter-group" });
     versionGroup.createEl("label", { text: "Version:" });
     const versionSelect = versionGroup.createEl("select");
+    versionSelect.createEl("option", { value: "", text: "\u5168\u90E8\u7248\u672C" });
     for (const version of this.getSortedVersionsForProject(versions, this.selectedProject)) {
       versionSelect.createEl("option", { value: version.version, text: version.version });
     }
@@ -1225,19 +1395,17 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
       };
       this.renderSections();
     });
-    const selectedTasks = this.store.getTasks((_c = this.selectedProject) != null ? _c : void 0).filter((task) => {
-      if (!this.selectedVersion) {
-        return false;
-      }
-      return task.version === this.selectedVersion;
-    });
+    const selectedTasks = this.getKanbanTasks();
     const columns = section.createDiv({ cls: "project-hub-kanban-columns" });
     this.renderTaskColumn(columns, "todo", "TODO", selectedTasks.filter((task) => task.status === "todo"), true);
-    this.renderTaskColumn(columns, "doing", "DOING", selectedTasks.filter((task) => task.status === "doing"), true);
+    this.renderTaskColumn(columns, "in-progress", "IN PROGRESS", selectedTasks.filter((task) => task.status === "in-progress"), true);
     this.renderTaskColumn(columns, "done", "DONE", selectedTasks.filter((task) => task.status === "done"), true);
-    if (!this.selectedVersion) {
+    if (selectedTasks.length === 0) {
       columns.empty();
-      columns.createDiv({ cls: "project-hub-empty-state", text: "\u5F53\u524D\u9879\u76EE\u6CA1\u6709\u53EF\u7528\u7248\u672C\uFF0C\u8BF7\u5148\u521B\u5EFA\u7248\u672C\u6587\u4EF6\u3002" });
+      columns.createDiv({
+        cls: "project-hub-empty-state",
+        text: this.selectedVersion ? "\u5F53\u524D\u7B5B\u9009\u6761\u4EF6\u4E0B\u6CA1\u6709\u4EFB\u52A1\u3002" : "\u5F53\u524D\u7B5B\u9009\u6761\u4EF6\u4E0B\u6CA1\u6709\u4EFB\u52A1\uFF0C\u53EF\u5207\u6362\u9879\u76EE\u6216\u7248\u672C\u67E5\u770B\u3002"
+      });
     }
   }
   renderTaskColumn(container, status, label, tasks, droppable) {
@@ -1279,7 +1447,7 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     const card = container.createDiv({ cls: "project-hub-task-card" });
     card.dataset.taskId = task.id;
     card.dataset.status = task.status;
-    card.style.borderLeftColor = task.priority === "high" ? "#dc2626" : "#e2e8f0";
+    card.style.borderLeftColor = getTaskPriorityColor(task.priority);
     if (draggable) {
       card.setAttribute("draggable", "true");
       card.addEventListener("dragstart", (event) => {
@@ -1301,11 +1469,17 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
       cls: "project-hub-task-title",
       text: task.text
     });
+    const metaParts = [
+      `@${(_a = task.owner) != null ? _a : "\u672A\u5206\u914D"}`,
+      formatTaskPriority(task.priority),
+      (_b = task.due) != null ? _b : "\u672A\u8BBE\u7F6E",
+      task.effort ? `${task.effort}h` : null
+    ].filter((part) => Boolean(part));
     const meta = card.createDiv({
       cls: "project-hub-task-meta",
-      text: `@${(_a = task.owner) != null ? _a : "\u672A\u5206\u914D"} \xB7 ${(_b = task.due) != null ? _b : "\u672A\u8BBE\u7F6E"}`
+      text: metaParts.join(" \xB7 ")
     });
-    meta.setAttr("title", task.sourceType === "ops-task" ? "\u6765\u6E90 Ops" : `\u6765\u6E90 ${task.source}`);
+    meta.setAttr("title", `\u6765\u6E90 ${task.source}`);
     card.setAttr("title", "\u62D6\u62FD\u53EF\u53D8\u66F4\u72B6\u6001\uFF0C\u53CC\u51FB\u6253\u5F00\u4EFB\u52A1\u6E90\u6587\u4EF6");
     card.addEventListener("dblclick", async () => {
       await this.openTaskFile(task);
@@ -1375,16 +1549,25 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     });
   }
   getSortedVersionsForProject(versions, project) {
-    return versions.filter((version) => !project || version.project === project).sort(compareVersionRecordsDesc);
+    return versions.filter((version) => !project || project === ALL_PROJECTS_VALUE || version.project === project).sort(compareVersionRecordsDesc);
+  }
+  getKanbanTasks() {
+    const projectFilter = this.selectedProject && this.selectedProject !== ALL_PROJECTS_VALUE ? this.selectedProject : void 0;
+    return this.store.getTasks(projectFilter).filter((task) => {
+      if (!this.selectedVersion) {
+        return true;
+      }
+      return task.version === this.selectedVersion;
+    });
   }
   async handleDrop(targetStatus) {
-    var _a;
     const taskId = this.draggingTaskId;
     this.draggingTaskId = null;
     if (!taskId) {
       return;
     }
-    const task = this.store.getTasks((_a = this.selectedProject) != null ? _a : void 0).find((item) => item.id === taskId);
+    const projectFilter = this.selectedProject && this.selectedProject !== ALL_PROJECTS_VALUE ? this.selectedProject : void 0;
+    const task = this.store.getTasks(projectFilter).find((item) => item.id === taskId);
     if (!task) {
       return;
     }
@@ -1444,8 +1627,8 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
 };
 function normalizeVersionBoardStatus(status) {
   const normalized = (status != null ? status : "").trim().toLowerCase();
-  if (["doing", "developing", "active", "\u5F00\u53D1\u4E2D"].includes(normalized)) {
-    return "doing";
+  if (["in progress", "in-progress", "doing", "developing", "active", "\u5F00\u53D1\u4E2D"].includes(normalized)) {
+    return "in-progress";
   }
   if (["released", "done", "\u5DF2\u53D1\u5E03"].includes(normalized)) {
     return "done";
@@ -1477,11 +1660,43 @@ function formatShortDate(value) {
   }
   return value;
 }
-function todayString() {
+function todayString2() {
   return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
 }
+function formatTaskPriority(priority) {
+  const normalized = (priority != null ? priority : "").trim().toLowerCase();
+  if (["urgent", "critical"].includes(normalized)) {
+    return "\u7D27\u6025";
+  }
+  if (["high"].includes(normalized)) {
+    return "\u9AD8\u4F18";
+  }
+  if (["medium", "normal"].includes(normalized)) {
+    return "\u4E2D\u4F18";
+  }
+  if (["low"].includes(normalized)) {
+    return "\u4F4E\u4F18";
+  }
+  return "\u666E\u901A";
+}
+function getTaskPriorityColor(priority) {
+  const normalized = (priority != null ? priority : "").trim().toLowerCase();
+  if (["urgent", "critical"].includes(normalized)) {
+    return "#991b1b";
+  }
+  if (normalized === "high") {
+    return "#dc2626";
+  }
+  if (["medium", "normal"].includes(normalized)) {
+    return "#f59e0b";
+  }
+  if (normalized === "low") {
+    return "#10b981";
+  }
+  return "#e2e8f0";
+}
 function isTaskOverdue(task, today) {
-  return task.status !== "done" && Boolean(task.due) && task.due < today;
+  return task.status !== "done" && typeof task.due === "string" && task.due < today;
 }
 function buildMiniTrendValues(points, completionRate) {
   if (points.length === 0) {
@@ -1517,13 +1732,18 @@ function updateChecklistTaskStatus(content, task, status) {
   if (!match) {
     return content;
   }
-  const rawText = match[4].replace(/🚧/g, "").replace(/\s+/g, " ").trim();
+  const rawText = match[4].replace(/🚧/g, "").replace(/✅\s*\d{4}-\d{2}-\d{2}/g, "").replace(/\s+/g, " ").trim();
   const nextMarker = status === "done" ? "x" : " ";
-  const nextText = status === "doing" ? `${rawText} \u{1F6A7}` : rawText;
+  let nextText = rawText;
+  if (status === "in-progress") {
+    nextText = `${rawText} \u{1F6A7}`;
+  } else if (status === "done") {
+    nextText = `${rawText} \u2705 ${todayString2()}`;
+  }
   lines[index] = `${match[1]}${nextMarker}${match[3]}${nextText}`;
   return lines.join("\n");
 }
-function updateVersionStatusInFrontmatter(content) {
+function updateVersionStatusInFrontmatter(content, status) {
   if (!content.startsWith("---")) {
     return content;
   }
@@ -1538,7 +1758,7 @@ function updateVersionStatusInFrontmatter(content) {
   if (frontmatterEnd === -1) {
     return content;
   }
-  const derivedStatus = deriveVersionStatusFromChecklist(lines.slice(frontmatterEnd + 1));
+  const derivedStatus = status != null ? status : deriveVersionStatusFromChecklist(lines.slice(frontmatterEnd + 1));
   if (!derivedStatus) {
     return content;
   }
@@ -1553,7 +1773,7 @@ function updateVersionStatusInFrontmatter(content) {
 function deriveVersionStatusFromChecklist(lines) {
   let total = 0;
   let done = 0;
-  let doing = 0;
+  let inProgress = 0;
   for (const line of lines) {
     const match = line.match(/^\s*-\s\[([ xX])\]\s+(.+)$/);
     if (!match) {
@@ -1566,19 +1786,19 @@ function deriveVersionStatusFromChecklist(lines) {
       continue;
     }
     if (rawText.includes("\u{1F6A7}")) {
-      doing += 1;
+      inProgress += 1;
     }
   }
   if (total === 0) {
     return null;
   }
   if (done === total) {
-    return "released";
+    return "done";
   }
-  if (doing > 0 || done > 0) {
-    return "developing";
+  if (inProgress > 0 || done > 0) {
+    return "in-progress";
   }
-  return "planned";
+  return "todo";
 }
 
 // src/main.ts

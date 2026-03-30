@@ -1,6 +1,5 @@
 {
   "vaultPath": "C:/path/to/YourVault",
   "pluginId": "obsidian-project-hub",
-  "copyManagedProjects": true,
-  "copyDemoProjects": true
+  "copyManagedProjects": true
 }

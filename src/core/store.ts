@@ -55,8 +55,11 @@ export class ProjectStore {
     const parsed = await Promise.all(files.map((file) => parseMarkdownFile(this.app, file)));
 
     this.declaredProjects = parsed.map((item) => item.project).filter(isProject).sort(compareByPath);
-    this.versions = parsed.map((item) => item.version).filter(isVersion).sort(compareByPath);
     this.tasks = parsed.flatMap((item) => item.tasks).filter(isTask).sort(compareByPath);
+    this.versions = applyDerivedVersionStatuses(
+      parsed.map((item) => item.version).filter(isVersion).sort(compareByPath),
+      this.tasks
+    );
     this.roadmaps = parsed.map((item) => item.roadmap).filter(isRoadmap).sort(compareByPath);
     this.projects = buildProjectRecords(this.declaredProjects, this.versions, this.tasks, this.roadmaps);
     this.emitChange();
@@ -77,7 +80,6 @@ export class ProjectStore {
     }
     if (parsed.version && isVersion(parsed.version)) {
       this.versions.push(parsed.version);
-      this.versions.sort(compareByPath);
     }
     if (parsed.tasks.length > 0) {
       this.tasks.push(...parsed.tasks.filter(isTask));
@@ -88,6 +90,7 @@ export class ProjectStore {
       this.roadmaps.sort(compareByPath);
     }
 
+    this.versions = applyDerivedVersionStatuses(this.versions.sort(compareByPath), this.tasks);
     this.projects = buildProjectRecords(this.declaredProjects, this.versions, this.tasks, this.roadmaps);
     this.emitChange();
   }
@@ -144,18 +147,22 @@ export class ProjectStore {
     const tasks = this.getTasks(project);
     const today = new Date().toISOString().slice(0, 10);
     const todoTasks = tasks.filter((task) => task.status === "todo").length;
-    const doingTasks = tasks.filter((task) => task.status === "doing").length;
+    const inProgressTasks = tasks.filter((task) => task.status === "in-progress").length;
     const doneTasks = tasks.filter((task) => task.status === "done").length;
     const overdueTasks = tasks.filter((task) => task.status !== "done" && Boolean(task.due) && task.due < today).length;
     const totalTasks = tasks.length;
+    const totalEffort = tasks.reduce((sum, task) => sum + (task.effort ?? 0), 0);
+    const doneEffort = tasks.filter((task) => task.status === "done").reduce((sum, task) => sum + (task.effort ?? 0), 0);
 
     return {
       totalTasks,
       todoTasks,
-      doingTasks,
+      inProgressTasks,
       doneTasks,
       overdueTasks,
-      completionRate: totalTasks === 0 ? 0 : Math.round((doneTasks / totalTasks) * 100)
+      completionRate: totalTasks === 0 ? 0 : Math.round((doneTasks / totalTasks) * 100),
+      totalEffort,
+      doneEffort
     };
   }
 
@@ -190,21 +197,25 @@ export class ProjectStore {
       const versionTasks = this.getTasks(project).filter((task) => task.version === version.version);
       const today = new Date().toISOString().slice(0, 10);
       const todoTasks = versionTasks.filter((task) => task.status === "todo").length;
-      const doingTasks = versionTasks.filter((task) => task.status === "doing").length;
+      const inProgressTasks = versionTasks.filter((task) => task.status === "in-progress").length;
       const doneTasks = versionTasks.filter((task) => task.status === "done").length;
       const overdueTasks = versionTasks.filter(
         (task) => task.status !== "done" && Boolean(task.due) && task.due < today
       ).length;
       const totalTasks = versionTasks.length;
+      const totalEffort = versionTasks.reduce((sum, task) => sum + (task.effort ?? 0), 0);
+      const doneEffort = versionTasks.filter((task) => task.status === "done").reduce((sum, task) => sum + (task.effort ?? 0), 0);
 
       return {
         version,
         totalTasks,
         todoTasks,
-        doingTasks,
+        inProgressTasks,
         doneTasks,
         overdueTasks,
-        completionRate: totalTasks === 0 ? 0 : Math.round((doneTasks / totalTasks) * 100)
+        completionRate: totalTasks === 0 ? 0 : Math.round((doneTasks / totalTasks) * 100),
+        totalEffort,
+        doneEffort
       };
     });
   }
@@ -365,4 +376,38 @@ function buildProjectRecords(
   }
 
   return [...projects.values()].sort(compareByPath);
+}
+
+function applyDerivedVersionStatuses(versions: VersionRecord[], tasks: TaskRecord[]): VersionRecord[] {
+  return versions.map((version) => {
+    const derivedStatus = deriveVersionStatus(version, tasks);
+    if (!derivedStatus || derivedStatus === version.status) {
+      return version;
+    }
+
+    return {
+      ...version,
+      status: derivedStatus
+    };
+  });
+}
+
+function deriveVersionStatus(version: VersionRecord, tasks: TaskRecord[]): string | undefined {
+  const versionTasks = tasks.filter(
+    (task) => task.project === version.project && task.version === version.version
+  );
+
+  if (versionTasks.length === 0) {
+    return version.status;
+  }
+
+  if (versionTasks.every((task) => task.status === "done")) {
+    return "done";
+  }
+
+  if (versionTasks.some((task) => task.status === "in-progress" || task.status === "done")) {
+    return "in-progress";
+  }
+
+  return "todo";
 }

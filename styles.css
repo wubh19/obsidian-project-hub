@@ -543,6 +543,11 @@
   color: var(--text-muted);
 }
 
+.project-hub-native-date-input {
+  width: 100%;
+  min-width: 180px;
+}
+
 .project-hub-version-title {
   font-weight: 600;
 }
@@ -905,7 +910,13 @@
   display: flex;
   gap: 20px;
   flex-wrap: wrap;
+  align-items: center;
   border-bottom: 1px solid var(--project-hub-line);
+}
+
+.project-hub-filter-actions {
+  display: flex;
+  align-items: center;
 }
 
 .project-hub-filter-group {
@@ -1006,9 +1017,10 @@
   font-size: 0.7rem;
   color: var(--text-muted);
   margin-top: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  line-height: 1.35;
 }
 
 .project-hub-empty-state {
@@ -1037,6 +1049,10 @@
   .project-hub-filters {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .project-hub-filter-actions {
+    width: 100%;
   }
 
   .project-hub-filter-group {

@@ -73,7 +73,7 @@ function inferProjectFromPath(filePath: string): ResolvedProjectInfo {
   }
 
   const containerIndex = segments.findIndex(
-    (segment, index) => index > 0 && ["Versions", "Ops", "Docs"].includes(segment)
+    (segment, index) => index > 0 && ["Versions", "Docs"].includes(segment)
   );
   if (containerIndex !== -1) {
     return {
@@ -152,7 +152,7 @@ function stripFrontmatter(content: string): { body: string; startLine: number } 
 }
 
 function extractOwner(text: string): string | undefined {
-  return text.match(/@([^\s🔥⚠️🚧📅]+)/u)?.[1]?.trim();
+  return text.match(/@([^\s🔥⚠️🚧📅✅⏱]+)/u)?.[1]?.trim();
 }
 
 function extractPriority(text: string): string {
@@ -166,14 +166,25 @@ function extractPriority(text: string): string {
 }
 
 function extractDue(text: string): string | undefined {
-  return text.match(/📅(\d{4}-\d{2}-\d{2})/)?.[1];
+  return text.match(/📅\s*(\d{4}-\d{2}-\d{2})/)?.[1];
+}
+
+function extractCompleted(text: string): string | undefined {
+  return text.match(/✅\s*(\d{4}-\d{2}-\d{2})/)?.[1];
+}
+
+function extractEffort(text: string): number | undefined {
+  const match = text.match(/⏱(?:️)?\s*([\d.]+)h/i);
+  return match ? parseFloat(match[1]) : undefined;
 }
 
 function extractTaskTitle(text: string): string {
   return text
-    .replace(/@([^\s🔥⚠️🚧📅]+)/gu, "")
+    .replace(/@([^\s🔥⚠️🚧📅✅⏱]+)/gu, "")
     .replace(/[🔥⚠️🚧]/gu, "")
-    .replace(/📅\d{4}-\d{2}-\d{2}/g, "")
+    .replace(/📅\s*\d{4}-\d{2}-\d{2}/g, "")
+    .replace(/✅\s*\d{4}-\d{2}-\d{2}/g, "")
+    .replace(/⏱(?:️)?\s*[\d.]+h/gi, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -183,7 +194,7 @@ function parseChecklistTasks(
   file: TFile,
   project: string,
   projectPath: string,
-  sourceType: "version-task" | "ops-task",
+  sourceType: "version-task",
   source: string,
   version?: string
 ): TaskRecord[] {
@@ -200,7 +211,11 @@ function parseChecklistTasks(
 
     const rawText = match[2].trim();
     const done = match[1].toLowerCase() === "x";
-    const status = done ? "done" : rawText.includes("🚧") ? "doing" : "todo";
+    const status = done
+      ? "done"
+      : rawText.includes("🚧")
+        ? "in-progress"
+        : "todo";
     const title = extractTaskTitle(rawText);
 
     tasks.push({
@@ -216,6 +231,8 @@ function parseChecklistTasks(
       priority: extractPriority(rawText),
       status,
       due: extractDue(rawText),
+      completed: extractCompleted(rawText),
+      effort: extractEffort(rawText),
       source,
       sourceType,
       lineNumber: startLine + index,
@@ -254,6 +271,9 @@ function parseVersion(frontmatter: FrontmatterLike, file: TFile, content: string
     return null;
   }
 
+  const effortRaw = normalizeString(frontmatter.effort);
+  const effort = effortRaw ? parseFloat(effortRaw) : undefined;
+
   return {
     type: "version",
     filePath: file.path,
@@ -265,7 +285,8 @@ function parseVersion(frontmatter: FrontmatterLike, file: TFile, content: string
     status: normalizeString(frontmatter.status),
     start: normalizeString(frontmatter.start),
     end: normalizeString(frontmatter.end),
-    releaseDate: normalizeString(frontmatter.release_date) ?? normalizeString(frontmatter.end)
+    releaseDate: normalizeString(frontmatter.release_date) ?? normalizeString(frontmatter.end),
+    effort: Number.isFinite(effort) ? effort : undefined
   };
 }
 
@@ -294,7 +315,7 @@ function parseTask(frontmatter: FrontmatterLike, file: TFile, content: string): 
     start: normalizeString(frontmatter.start),
     due: normalizeString(frontmatter.due),
     source: normalizeString(frontmatter.version) ?? "legacy-task",
-    sourceType: normalizeString(frontmatter.version) ? "version-task" : "ops-task",
+    sourceType: normalizeString(frontmatter.version) ? "version-task" : "task-file",
     lineNumber: 1,
     rawText: taskText,
     text: taskText
@@ -370,16 +391,6 @@ export async function parseMarkdownFile(app: App, file: TFile): Promise<ParsedMa
             versionRecord.version
           )
           : []
-      };
-    case "ops":
-      if (!projectInfo.project || !projectInfo.projectPath) {
-        return { project: null, version: null, roadmap: null, tasks: [] };
-      }
-      return {
-        project: null,
-        version: null,
-        roadmap: null,
-        tasks: parseChecklistTasks(content, file, projectInfo.project, projectInfo.projectPath, "ops-task", "运维")
       };
     case "task":
       return {

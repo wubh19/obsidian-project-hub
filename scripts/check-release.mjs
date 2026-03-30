@@ -11,9 +11,7 @@ const requiredChecklistItems = [
   "README.md",
   "docs/DEPLOY.md",
   "docs/RELEASE.md",
-  "demo/README.md",
-  "Projects/obsidian-project-hub/**",
-  "demo/Projects/**"
+  "Projects/obsidian-project-hub/**"
 ];
 
 async function main() {

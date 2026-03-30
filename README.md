@@ -2,10 +2,13 @@
 
 一个基于 Markdown + YAML 的 Obsidian 项目管理插件，围绕 Task 建模，提供项目面板、版本中心、任务看板、Dashboard 图表和 Roadmap 可视化。
 
+
 ## 当前版本
 
-- 版本号：0.4.1
+- 版本号：0.4.12
 - 数据模型：`project`、`version`、`task`、`roadmap`
+- 状态体系统一为三状态（Todo/In Progress/Done）
+- 支持项目/版本/任务工时统计与聚合展示
 - 支持真实 Kanban 拖拽修改状态
 - 支持快速新建任务并自动生成 Markdown 文件
 - 支持版本中心、状态分布、按人统计、燃尽图、Roadmap 时间线
@@ -30,13 +33,13 @@ npm.cmd run release
 ### 自动升级版本号并生成发布模板
 
 ```bash
-npm.cmd run version:bump -- 0.4.2
+npm.cmd run version:bump -- 0.4.12
 ```
 
 可选地也可以同时指定 `minAppVersion`：
 
 ```bash
-npm.cmd run version:bump -- 0.4.2 1.5.0
+npm.cmd run version:bump -- 0.4.12 1.5.0
 ```
 
 这个脚本会自动更新：
@@ -68,17 +71,12 @@ npm.cmd run build
 
 项目设计方案见 [docs/DESIGN.md](docs/DESIGN.md)。
 
-## Demo
+## 默认项目
 
-仓库内置了一个可直接使用的演示目录：`demo/`
+仓库根目录下提供了一套默认项目数据：`Projects/obsidian-project-hub/`
 
-同时，仓库根目录下也提供了一套默认项目数据：`Projects/obsidian-project-hub/`
-
-- 将 `demo/Projects` 复制到 Vault 根目录后即可直接使用
 - 当前仓库作为 Vault 使用时，会优先显示 `Projects/obsidian-project-hub` 这个默认项目
-- Demo 只保留一个项目，项目名称固定为 `demo`
-- 打开插件面板后，可以立刻看到版本、运维任务、任务看板、版本中心、Dashboard 图表和 Roadmap
-- Demo 使用说明见 [demo/README.md](demo/README.md)
+- 打开插件面板后，可以直接看到版本、任务看板、版本中心、Dashboard 图表和 Roadmap
 
 ## 使用说明
 
@@ -92,16 +90,14 @@ Projects/
 │   ├── 00_Project.md
 │   ├── 01_Roadmap.md
 │   ├── Versions/
-│   │   ├── V3.5.0.md
-│   │   ├── V3.6.0.md
-│   ├── Ops/
-│   │   ├── Ops.md
+│   │   ├── 3.5.0.md
+│   │   ├── 3.6.0.md
 │   ├── Docs/
 │   │   ├── 技术方案.md
 │   │   ├── 会议记录.md
 ```
 
-如果你的 Vault 里按“分组/项目”方式存放，也支持按第二层项目目录自动归属。例如：`工作台/DataSync/Versions/V3.5.0.md` 会自动识别为 `DataSync` 项目。
+如果你的 Vault 里按“分组/项目”方式存放，也支持按第二层项目目录自动归属。例如：`工作台/DataSync/Versions/3.5.0.md` 会自动识别为 `DataSync` 项目。
 
 ### 数据约定
 
@@ -156,29 +152,14 @@ end: 2026-04-15
 - [x] 完成方案设计 @王五
 ```
 
-### 运维任务
-
-```md
----
-type: ops
----
-
-# 运维任务
-
-## Tasks
-
-- [ ] 服务器巡检 @运维A
-- [ ] 数据备份 @运维B
-- [x] 日志清理
-```
-
 ### Checklist 解析规则
 
 - `@张三`：负责人
 - `🔥`：高优先级
 - `⚠️`：中优先级
 - `🚧`：进行中任务标记
-- `📅2026-03-30`：截止日期
+- `📅 2026-03-30`：截止日期
+- `✅ 2026-03-30`：完成日期
 
 ### Roadmap
 
@@ -213,11 +194,11 @@ type: roadmap
 
 ### Kanban
 
-- Todo / Doing / Done 看板
+- Todo / In Progress / Done 看板
 - 卡片拖拽更新 checklist 状态
 - 面板内菜单修改状态
 - 快速打开对应 Markdown 任务文件
-- 快速创建默认写入版本文件；未选版本时写入 `Projects/<项目>/Ops/Ops.md`
+- 快速创建必须选择版本，并写入对应版本文件
 
 ### 版本中心
 
@@ -243,8 +224,6 @@ type: roadmap
 - `README.md`
 - `docs/DEPLOY.md`
 - `docs/RELEASE.md`
-- `demo/README.md`
-- `demo/Projects/**`
 - `package.json`
 - `manifest.json`
 - `versions.json`
