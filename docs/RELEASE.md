@@ -50,7 +50,7 @@
 执行：
 
 ```powershell
-npm.cmd run version:bump -- 0.4.3
+npm.cmd run version:bump -- 0.4.19
 ```
 
 这个脚本会自动：
@@ -58,19 +58,20 @@ npm.cmd run version:bump -- 0.4.3
 - 更新 `package.json` 中的版本号
 - 更新 `manifest.json` 中的版本号
 - 为 `versions.json` 新增当前版本对应的 `minAppVersion`
-- 生成 `docs/releases/0.4.2.md` 模板
+- 生成 `docs/releases/0.4.19.md` 模板
 
 如果需要显式指定最低 Obsidian 版本：
 
 ```powershell
-npm.cmd run version:bump -- 0.4.2 1.5.0
+npm.cmd run version:bump -- 0.4.19 1.5.0
 ```
 
 ## 每次版本至少要确认的用户可见能力
 
 - 数据解析是否兼容现有 Markdown
-- `Projects/<项目>/Versions` 目录是否能正确识别和归属
-- `Projects/<项目>/Versions/*.md` 内的 checklist 是否能正确解析为版本任务
+- `<项目容器>/<项目>/Versions` 目录是否能正确识别和归属
+- `<项目容器>/<项目>/Versions/*.md` 内的 checklist 是否能正确解析为版本任务
+- 快速新增项目/版本是否写入正确文件属性，并能读取 `Templates/Project.md`、`Templates/Version.md`
 - Dashboard 是否正常打开
 - 看板拖拽是否会回写 `status`
 - 快速新建任务是否生成正确 Frontmatter

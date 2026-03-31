@@ -5,12 +5,13 @@
 
 ## 当前版本
 
-- 版本号：0.4.12
+- 版本号：0.4.19
 - 数据模型：`project`、`version`、`task`、`roadmap`
 - 状态体系统一为三状态（Todo/In Progress/Done）
 - 支持项目/版本/任务工时统计与聚合展示
 - 支持真实 Kanban 拖拽修改状态
 - 支持快速新建任务并自动生成 Markdown 文件
+- 支持快速新增项目与快速新增版本，并按 `Templates/Project.md`、`Templates/Version.md` 初始化完整模板和文件属性
 - 支持版本中心、状态分布、按人统计、燃尽图、Roadmap 时间线
 
 ## 安装与打包
@@ -33,13 +34,13 @@ npm.cmd run release
 ### 自动升级版本号并生成发布模板
 
 ```bash
-npm.cmd run version:bump -- 0.4.12
+npm.cmd run version:bump -- 0.4.19
 ```
 
 可选地也可以同时指定 `minAppVersion`：
 
 ```bash
-npm.cmd run version:bump -- 0.4.12 1.5.0
+npm.cmd run version:bump -- 0.4.19 1.5.0
 ```
 
 这个脚本会自动更新：
@@ -78,14 +79,23 @@ npm.cmd run build
 - 当前仓库作为 Vault 使用时，会优先显示 `Projects/obsidian-project-hub` 这个默认项目
 - 打开插件面板后，可以直接看到版本、任务看板、版本中心、Dashboard 图表和 Roadmap
 
+## 多看板
+
+- 现在支持同时打开多个 `Project Hub` 看板
+- 看板范围改为“项目容器目录”，例如配置 `wubh` 后，会显示 `wubh` 下面的所有项目
+- 可以在 Obsidian 的 `Settings > Community plugins > Project Hub` 中配置多个项目路径
+- 每个已配置路径都会在左侧工具栏显示一个独立图标，点击后直接打开对应范围的看板
+- 设置页中的项目路径会即时预览当前根层级容器下识别到的项目文件夹
+- 点击左侧工具栏图标时，如果对应范围的看板已打开，会直接跳转到现有看板而不是重新打开
+
 ## 使用说明
 
 ### 推荐目录结构
 
-插件默认推荐下面这套目录约定，并且会从 `Projects/<项目名>/...` 自动推断 `project` 归属：
+插件默认推荐下面这套目录约定，并且会从 `<项目容器>/<项目名>/...` 自动推断 `project` 归属。当前本地 Vault 默认使用 `wubh/<项目名>/...`：
 
 ```text
-Projects/
+wubh/
 ├── DataSync/
 │   ├── 00_Project.md
 │   ├── 01_Roadmap.md
@@ -98,6 +108,8 @@ Projects/
 ```
 
 如果你的 Vault 里按“分组/项目”方式存放，也支持按第二层项目目录自动归属。例如：`工作台/DataSync/Versions/3.5.0.md` 会自动识别为 `DataSync` 项目。
+
+快速新增项目和快速新增版本会从 `Templates/Project.md` 或 `Templates/Version.md` 读取完整模板；模板里的 frontmatter 会被保留，但 `type`、`project`、`name`、`version` 等关键文件属性会按当前创建对象自动覆盖，避免占位值残留。
 
 ### 数据约定
 
@@ -214,7 +226,10 @@ type: roadmap
 ## 命令
 
 - `Open Project Hub dashboard`
+- `Open Project Hub dashboard in current leaf`
 - `Refresh Project Hub data`
+- `Quick create project`
+- `Quick create version`
 - `Quick create project task`
 
 ## 版本维护要求

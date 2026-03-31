@@ -15,7 +15,11 @@ async function main() {
   const vaultPath = path.resolve(config.vaultPath);
   const pluginId = config.pluginId || "obsidian-project-hub";
   const pluginTargetPath = path.join(vaultPath, ".obsidian", "plugins", pluginId);
-  const vaultProjectsPath = path.join(vaultPath, "Projects");
+  const managedProjectsTargetPath = typeof config.managedProjectsTargetPath === "string"
+    && config.managedProjectsTargetPath.trim().length > 0
+    ? config.managedProjectsTargetPath.trim()
+    : "wubh";
+  const vaultProjectsPath = path.join(vaultPath, managedProjectsTargetPath);
 
   await ensureArtifacts(["main.js", "manifest.json", "styles.css"]);
   await fs.mkdir(pluginTargetPath, { recursive: true });
@@ -39,6 +43,9 @@ async function readConfig(configPath) {
     const parsed = JSON.parse(raw);
     if (!parsed.vaultPath || typeof parsed.vaultPath !== "string") {
       throw new Error("Missing required string field: vaultPath");
+    }
+    if (parsed.managedProjectsTargetPath !== undefined && typeof parsed.managedProjectsTargetPath !== "string") {
+      throw new Error("managedProjectsTargetPath must be a string when provided");
     }
     return parsed;
   } catch (error) {

@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => ProjectHubPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian3 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/core/parser.ts
 function parseFrontmatterFromContent(content) {
@@ -696,12 +696,373 @@ function deriveVersionStatus(version, tasks) {
   return "todo";
 }
 
-// src/views/dashboard-view.ts
+// src/modals/create-project-version-modal.ts
+var import_obsidian = require("obsidian");
+var CreateProjectModal = class extends import_obsidian.Modal {
+  constructor(options) {
+    var _a, _b, _c;
+    super(options.app);
+    this.scopePath = "";
+    this.projectName = "";
+    this.scopes = options.scopes;
+    this.scopePath = (_c = (_b = options.initialScopePath) != null ? _b : (_a = options.scopes[0]) == null ? void 0 : _a.path) != null ? _c : "";
+    this.onSubmitHandler = options.onSubmit;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("project-hub-modal");
+    contentEl.createEl("h2", { text: "\u5FEB\u901F\u65B0\u589E\u9879\u76EE" });
+    contentEl.createEl("p", {
+      cls: "project-hub-modal-subtitle",
+      text: "\u521B\u5EFA\u9879\u76EE\u76EE\u5F55\u548C 00_Project.md\uFF0C\u5E76\u6309 Templates/Project.md \u521D\u59CB\u5316\u6B63\u6587\u3002"
+    });
+    if (this.scopes.length > 1) {
+      const scopeSetting = new import_obsidian.Setting(contentEl).setName("\u9879\u76EE\u5BB9\u5668").setDesc("\u9009\u62E9\u9879\u76EE\u8981\u521B\u5EFA\u5230\u54EA\u4E2A\u6839\u76EE\u5F55\u4E0B");
+      scopeSetting.controlEl.empty();
+      const scopeSelect = scopeSetting.controlEl.createEl("select");
+      for (const scope of this.scopes) {
+        scopeSelect.createEl("option", { value: scope.path, text: scope.path });
+      }
+      scopeSelect.value = this.scopePath;
+      scopeSelect.addEventListener("change", () => {
+        this.scopePath = scopeSelect.value;
+      });
+    }
+    new import_obsidian.Setting(contentEl).setName("\u9879\u76EE\u540D\u79F0").setDesc("\u4F8B\u5982 obsidian-project-hub \u6216 project2").addText((text) => {
+      text.setPlaceholder("project2").onChange((value) => {
+        this.projectName = value.trim();
+      });
+    });
+    new import_obsidian.Setting(contentEl).addButton((button) => {
+      button.setButtonText("\u521B\u5EFA\u9879\u76EE").setCta().onClick(async () => {
+        await this.submit();
+      });
+    }).addExtraButton((button) => {
+      button.setIcon("cross").setTooltip("\u53D6\u6D88").onClick(() => {
+        this.close();
+      });
+    });
+  }
+  async submit() {
+    if (!this.scopePath) {
+      new import_obsidian.Notice("\u8BF7\u9009\u62E9\u9879\u76EE\u5BB9\u5668");
+      return;
+    }
+    if (!this.projectName) {
+      new import_obsidian.Notice("\u9879\u76EE\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A");
+      return;
+    }
+    await this.onSubmitHandler({
+      scopePath: this.scopePath,
+      projectName: this.projectName
+    });
+    this.close();
+  }
+};
+var CreateVersionModal = class extends import_obsidian.Modal {
+  constructor(options) {
+    var _a, _b, _c;
+    super(options.app);
+    this.project = "";
+    this.version = "";
+    this.projects = options.projects;
+    this.project = (_c = (_b = options.initialProject) != null ? _b : (_a = options.projects[0]) == null ? void 0 : _a.project) != null ? _c : "";
+    this.onSubmitHandler = options.onSubmit;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("project-hub-modal");
+    contentEl.createEl("h2", { text: "\u5FEB\u901F\u65B0\u589E\u7248\u672C" });
+    contentEl.createEl("p", {
+      cls: "project-hub-modal-subtitle",
+      text: "\u521B\u5EFA\u7248\u672C\u6587\u4EF6\uFF0C\u5E76\u6309 Templates/Version.md \u521D\u59CB\u5316\u6B63\u6587\u3002"
+    });
+    const projectSetting = new import_obsidian.Setting(contentEl).setName("\u9879\u76EE").setDesc("\u9009\u62E9\u7248\u672C\u5F52\u5C5E\u7684\u9879\u76EE");
+    projectSetting.controlEl.empty();
+    const projectSelect = projectSetting.controlEl.createEl("select");
+    for (const project of this.projects) {
+      projectSelect.createEl("option", { value: project.project, text: project.project });
+    }
+    projectSelect.value = this.project;
+    projectSelect.addEventListener("change", () => {
+      this.project = projectSelect.value;
+    });
+    new import_obsidian.Setting(contentEl).setName("\u7248\u672C\u53F7").setDesc("\u4F8B\u5982 0.4.15").addText((text) => {
+      text.setPlaceholder("0.4.15").onChange((value) => {
+        this.version = value.trim();
+      });
+    });
+    new import_obsidian.Setting(contentEl).addButton((button) => {
+      button.setButtonText("\u521B\u5EFA\u7248\u672C").setCta().onClick(async () => {
+        await this.submit();
+      });
+    }).addExtraButton((button) => {
+      button.setIcon("cross").setTooltip("\u53D6\u6D88").onClick(() => {
+        this.close();
+      });
+    });
+  }
+  async submit() {
+    if (!this.project) {
+      new import_obsidian.Notice("\u8BF7\u9009\u62E9\u9879\u76EE");
+      return;
+    }
+    if (!this.version) {
+      new import_obsidian.Notice("\u7248\u672C\u53F7\u4E0D\u80FD\u4E3A\u7A7A");
+      return;
+    }
+    await this.onSubmitHandler({
+      project: this.project,
+      version: this.version
+    });
+    this.close();
+  }
+};
+
+// src/modals/project-folder-suggest-modal.ts
+var import_obsidian3 = require("obsidian");
+
+// src/settings.ts
 var import_obsidian2 = require("obsidian");
+var DEFAULT_SETTINGS = {
+  scopes: [
+    {
+      id: createScopeId(),
+      path: "wubh",
+      icon: "layout-dashboard"
+    }
+  ]
+};
+var DEFAULT_SCOPE_ICON = "layout-dashboard";
+var ProjectHubSettingTab = class extends import_obsidian2.PluginSettingTab {
+  constructor(app, plugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
+  display() {
+    const { containerEl } = this;
+    containerEl.empty();
+    containerEl.createEl("h2", { text: "Project Hub" });
+    containerEl.createEl("p", {
+      text: "\u914D\u7F6E\u9879\u76EE\u5BB9\u5668\u76EE\u5F55\u3002\u6BCF\u4E2A\u5DF2\u914D\u7F6E\u76EE\u5F55\u90FD\u4F1A\u5728\u5DE6\u4FA7\u5DE5\u5177\u680F\u663E\u793A\u4E00\u4E2A\u9ED8\u8BA4\u770B\u677F\u56FE\u6807\u3002"
+    });
+    new import_obsidian2.Setting(containerEl).setName("\u9879\u76EE\u8DEF\u5F84").setDesc("\u4F8B\u5982 wubh\u3002\u6BCF\u4E00\u9879\u914D\u7F6E\u4E00\u4E2A\u9879\u76EE\u5BB9\u5668\u8DEF\u5F84\u3002").addButton((button) => {
+      button.setButtonText("\u65B0\u589E\u8DEF\u5F84").setCta().onClick(async () => {
+        this.plugin.settings.scopes.push({
+          id: createScopeId(),
+          path: "",
+          icon: DEFAULT_SCOPE_ICON
+        });
+        this.display();
+      });
+    });
+    if (this.plugin.settings.scopes.length === 0) {
+      containerEl.createDiv({
+        cls: "project-hub-empty-state",
+        text: "\u5F53\u524D\u6CA1\u6709\u914D\u7F6E\u9879\u76EE\u8DEF\u5F84\u3002\u65B0\u589E\u4E00\u6761\u540E\uFF0C\u5DE6\u4FA7\u5DE5\u5177\u680F\u4F1A\u51FA\u73B0\u5BF9\u5E94\u770B\u677F\u56FE\u6807\u3002"
+      });
+      return;
+    }
+    this.plugin.settings.scopes.forEach((scope, index) => {
+      this.renderScopeSetting(containerEl, scope, index);
+    });
+  }
+  renderScopeSetting(containerEl, scope, index) {
+    const setting = new import_obsidian2.Setting(containerEl).setName(`\u9879\u76EE\u8DEF\u5F84 ${index + 1}`);
+    const refreshPreview = (path) => {
+      const normalizedPath = normalizeScopePath(path);
+      if (!normalizedPath) {
+        setting.setDesc("\u8DEF\u5F84\u4F7F\u7528 Vault \u5185\u76F8\u5BF9\u8DEF\u5F84\uFF0C\u4F8B\u5982 wubh \u6216 Team/wubh");
+        return;
+      }
+      const projectFolders = this.plugin.getProjectFolderNamesForScope(normalizedPath);
+      if (projectFolders.length === 0) {
+        setting.setDesc(`\u672A\u8BC6\u522B\u5230\u9879\u76EE\u6587\u4EF6\u5939: ${normalizedPath}`);
+        return;
+      }
+      const names = projectFolders.slice(0, 4).join("\u3001");
+      const countText = projectFolders.length > 4 ? ` \u7B49 ${projectFolders.length} \u4E2A\u9879\u76EE` : ` \u5171 ${projectFolders.length} \u4E2A\u9879\u76EE`;
+      setting.setDesc(`\u5DF2\u8BC6\u522B: ${names}${countText}`);
+    };
+    setting.addText((text) => {
+      text.setPlaceholder("wubh").setValue(scope.path).onChange((value) => {
+        scope.path = value;
+        refreshPreview(value);
+      });
+      text.inputEl.style.width = "18rem";
+      text.inputEl.addEventListener("blur", () => {
+        void this.plugin.saveSettings();
+      });
+    });
+    setting.addExtraButton((button) => {
+      button.setIcon("cross").setTooltip("\u5220\u9664\u8BE5\u8DEF\u5F84").onClick(async () => {
+        this.plugin.settings.scopes = this.plugin.settings.scopes.filter((s) => s.id !== scope.id);
+        await this.plugin.saveSettings();
+        this.display();
+      });
+    });
+    refreshPreview(scope.path);
+  }
+};
+function normalizeSettings(data) {
+  if (!data || typeof data !== "object" || !("scopes" in data)) {
+    return {
+      scopes: [...DEFAULT_SETTINGS.scopes]
+    };
+  }
+  const scopes = Array.isArray(data == null ? void 0 : data.scopes) ? data.scopes : [];
+  const normalizedScopes = scopes.map((scope) => normalizeScopeSetting(scope)).filter((scope) => Boolean(scope)).filter((scope) => scope.path.length > 0);
+  return {
+    scopes: normalizedScopes
+  };
+}
+function normalizeScopePath(value) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  return (0, import_obsidian2.normalizePath)(trimmed).replace(/^\/+|\/+$/g, "");
+}
+function buildScopeDisplayName(scope) {
+  return scope.path;
+}
+function normalizeScopeIcon(value) {
+  return DEFAULT_SCOPE_ICON;
+}
+function normalizeScopeSetting(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const candidate = value;
+  const rawPath = typeof candidate.path === "string" ? normalizeScopePath(candidate.path) : "";
+  const path = normalizeLegacyScopePath(rawPath);
+  const id = typeof candidate.id === "string" && candidate.id.trim().length > 0 ? candidate.id.trim() : createScopeId();
+  const icon = typeof candidate.icon === "string" ? normalizeScopeIcon(candidate.icon) : DEFAULT_SCOPE_ICON;
+  return {
+    id,
+    path,
+    icon
+  };
+}
+function createScopeId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+function normalizeLegacyScopePath(rawPath) {
+  return rawPath;
+}
+
+// src/modals/project-folder-suggest-modal.ts
+var ProjectFolderSuggestModal = class extends import_obsidian3.FuzzySuggestModal {
+  constructor(app, projects, options, configuredScopes = []) {
+    super(app);
+    this.chosen = false;
+    this.scopeOptions = buildProjectScopeOptions(projects, configuredScopes);
+    this.onChoose = options.onChoose;
+    this.onCancel = options.onCancel;
+    this.setPlaceholder("\u9009\u62E9\u8981\u6253\u5F00\u7684\u9879\u76EE\u5BB9\u5668\u76EE\u5F55\uFF0C\u4F8B\u5982 Projects");
+    const initialScope = normalizeScopeProjectPath(options.initialScope);
+    if (initialScope) {
+      const initialOption = this.scopeOptions.find((item) => item.scopeRootPath === initialScope);
+      if (initialOption) {
+        this.setInstructions([
+          { command: "Enter", purpose: `\u6253\u5F00 ${initialOption.label}` },
+          { command: "Esc", purpose: "\u53D6\u6D88" }
+        ]);
+      }
+    }
+  }
+  getItems() {
+    return this.scopeOptions;
+  }
+  getItemText(item) {
+    return `${item.label} ${item.description}`;
+  }
+  renderSuggestion(match, el) {
+    const item = match.item;
+    el.empty();
+    el.createDiv({ cls: "project-hub-scope-suggest-title", text: item.label });
+    el.createDiv({ cls: "project-hub-scope-suggest-desc", text: item.description });
+  }
+  onChooseItem(item, _evt) {
+    this.chosen = true;
+    this.onChoose(item.scopeRootPath);
+  }
+  onClose() {
+    var _a;
+    super.onClose();
+    if (!this.chosen) {
+      (_a = this.onCancel) == null ? void 0 : _a.call(this);
+    }
+  }
+};
+function buildProjectScopeOptions(projects, configuredScopes = []) {
+  const configuredOptions = configuredScopes.map((scope) => {
+    const scopeRootPath = normalizeScopePath(scope.path);
+    if (!scopeRootPath) {
+      return null;
+    }
+    return {
+      label: buildScopeDisplayName(scope),
+      description: scopeRootPath,
+      scopeRootPath
+    };
+  }).filter((item) => Boolean(item));
+  if (configuredOptions.length > 0) {
+    return [
+      {
+        label: "\u5168\u90E8\u9879\u76EE",
+        description: "\u663E\u793A\u6240\u6709\u5DF2\u8BC6\u522B\u7684\u9879\u76EE\u76EE\u5F55",
+        scopeRootPath: null
+      },
+      ...configuredOptions
+    ];
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const scopedOptions = projects.map((project) => {
+    const scopeRootPath = getProjectScopeRoot(project.projectPath);
+    if (!scopeRootPath || seen.has(scopeRootPath)) {
+      return null;
+    }
+    seen.add(scopeRootPath);
+    return {
+      label: scopeRootPath,
+      description: `\u5305\u542B\u9879\u76EE\uFF0C\u4F8B\u5982 ${project.project}`,
+      scopeRootPath
+    };
+  }).filter((item) => Boolean(item)).sort((left, right) => left.label.localeCompare(right.label, "zh-Hans-CN"));
+  return [
+    {
+      label: "\u5168\u90E8\u9879\u76EE",
+      description: "\u663E\u793A\u6240\u6709\u5DF2\u8BC6\u522B\u7684\u9879\u76EE\u76EE\u5F55",
+      scopeRootPath: null
+    },
+    ...scopedOptions
+  ];
+}
+function getProjectScopeRoot(projectPath) {
+  const normalizedProjectPath = normalizeScopeProjectPath(projectPath);
+  if (!normalizedProjectPath) {
+    return null;
+  }
+  const segments = normalizedProjectPath.split("/").filter((segment) => segment.length > 0);
+  if (segments.length <= 1) {
+    return normalizedProjectPath;
+  }
+  return segments.slice(0, -1).join("/");
+}
+function normalizeScopeProjectPath(value) {
+  const normalizedValue = typeof value === "string" ? (0, import_obsidian3.normalizePath)(value).trim() : "";
+  return normalizedValue.length > 0 ? normalizedValue : null;
+}
+
+// src/views/dashboard-view.ts
+var import_obsidian5 = require("obsidian");
 
 // src/modals/create-task-modal.ts
-var import_obsidian = require("obsidian");
-var CreateTaskModal = class extends import_obsidian.Modal {
+var import_obsidian4 = require("obsidian");
+var CreateTaskModal = class extends import_obsidian4.Modal {
   constructor(options) {
     var _a, _b, _c;
     super(options.app);
@@ -726,19 +1087,19 @@ var CreateTaskModal = class extends import_obsidian.Modal {
       cls: "project-hub-modal-subtitle",
       text: "\u9879\u76EE\u3001\u7248\u672C\u3001\u8D1F\u8D23\u4EBA\u548C\u65E5\u671F\u90FD\u53EF\u4EE5\u5728\u8FD9\u91CC\u76F4\u63A5\u9009\u62E9\u3002"
     });
-    const projectSetting = new import_obsidian.Setting(contentEl).setName("\u9879\u76EE").setDesc("\u9009\u62E9\u4EFB\u52A1\u5F52\u5C5E\u7684\u9879\u76EE");
+    const projectSetting = new import_obsidian4.Setting(contentEl).setName("\u9879\u76EE").setDesc("\u9009\u62E9\u4EFB\u52A1\u5F52\u5C5E\u7684\u9879\u76EE");
     projectSetting.controlEl.empty();
     const projectSelect = projectSetting.controlEl.createEl("select");
     for (const project of this.projects) {
       projectSelect.createEl("option", { value: project.project, text: project.project });
     }
     projectSelect.value = this.project;
-    new import_obsidian.Setting(contentEl).setName("\u4EFB\u52A1\u6807\u9898").setDesc("\u7528\u4E8E\u751F\u6210\u4EFB\u52A1\u6587\u6863\u548C\u5361\u7247\u6807\u9898").addText((text) => {
+    new import_obsidian4.Setting(contentEl).setName("\u4EFB\u52A1\u6807\u9898").setDesc("\u7528\u4E8E\u751F\u6210\u4EFB\u52A1\u6587\u6863\u548C\u5361\u7247\u6807\u9898").addText((text) => {
       text.setPlaceholder("\u4F8B\u5982\uFF1A\u5347\u7EA7 JDK17").onChange((value) => {
         this.title = value.trim();
       });
     });
-    const versionSetting = new import_obsidian.Setting(contentEl).setName("\u7248\u672C").setDesc("\u5FC5\u987B\u9009\u62E9\u7248\u672C\uFF0C\u4EFB\u52A1\u4F1A\u5199\u5165\u5BF9\u5E94\u7248\u672C\u6587\u4EF6\u7684 Tasks \u533A\u5757");
+    const versionSetting = new import_obsidian4.Setting(contentEl).setName("\u7248\u672C").setDesc("\u5FC5\u987B\u9009\u62E9\u7248\u672C\uFF0C\u4EFB\u52A1\u4F1A\u5199\u5165\u5BF9\u5E94\u7248\u672C\u6587\u4EF6\u7684 Tasks \u533A\u5757");
     versionSetting.controlEl.empty();
     const versionSelect = versionSetting.controlEl.createEl("select");
     const syncVersionOptions = () => {
@@ -768,12 +1129,12 @@ var CreateTaskModal = class extends import_obsidian.Modal {
     versionSelect.addEventListener("change", () => {
       this.version = normalizeVersionValue(versionSelect.value);
     });
-    new import_obsidian.Setting(contentEl).setName("\u8D1F\u8D23\u4EBA").addText((text) => {
+    new import_obsidian4.Setting(contentEl).setName("\u8D1F\u8D23\u4EBA").addText((text) => {
       text.setPlaceholder("\u4F8B\u5982\uFF1A\u674E\u56DB").setValue(this.owner).onChange((value) => {
         this.owner = value.trim();
       });
     });
-    new import_obsidian.Setting(contentEl).setName("\u4F18\u5148\u7EA7").addDropdown((dropdown) => {
+    new import_obsidian4.Setting(contentEl).setName("\u4F18\u5148\u7EA7").addDropdown((dropdown) => {
       for (const option of ["low", "medium", "high", "urgent"]) {
         dropdown.addOption(option, option);
       }
@@ -782,7 +1143,7 @@ var CreateTaskModal = class extends import_obsidian.Modal {
         this.priority = value;
       });
     });
-    const dueSetting = new import_obsidian.Setting(contentEl).setName("\u622A\u6B62\u65E5\u671F").setDesc("\u70B9\u51FB\u9009\u62E9\u65E5\u671F");
+    const dueSetting = new import_obsidian4.Setting(contentEl).setName("\u622A\u6B62\u65E5\u671F").setDesc("\u70B9\u51FB\u9009\u62E9\u65E5\u671F");
     dueSetting.controlEl.empty();
     const dueInput = dueSetting.controlEl.createEl("input");
     dueInput.type = "date";
@@ -799,7 +1160,7 @@ var CreateTaskModal = class extends import_obsidian.Modal {
       var _a;
       (_a = dueInput.showPicker) == null ? void 0 : _a.call(dueInput);
     });
-    new import_obsidian.Setting(contentEl).addButton((button) => {
+    new import_obsidian4.Setting(contentEl).addButton((button) => {
       button.setButtonText("\u521B\u5EFA\u4EFB\u52A1").setCta().onClick(async () => {
         await this.submit();
       });
@@ -812,19 +1173,19 @@ var CreateTaskModal = class extends import_obsidian.Modal {
   async submit() {
     var _a;
     if (!this.project) {
-      new import_obsidian.Notice("\u8BF7\u9009\u62E9\u9879\u76EE");
+      new import_obsidian4.Notice("\u8BF7\u9009\u62E9\u9879\u76EE");
       return;
     }
     if (!this.title) {
-      new import_obsidian.Notice("\u4EFB\u52A1\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
+      new import_obsidian4.Notice("\u4EFB\u52A1\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A");
       return;
     }
     if (!this.version) {
-      new import_obsidian.Notice("\u8BF7\u9009\u62E9\u7248\u672C");
+      new import_obsidian4.Notice("\u8BF7\u9009\u62E9\u7248\u672C");
       return;
     }
     if (this.due && !/^\d{4}-\d{2}-\d{2}$/.test(this.due)) {
-      new import_obsidian.Notice("\u622A\u6B62\u65E5\u671F\u683C\u5F0F\u5FC5\u987B\u662F YYYY-MM-DD");
+      new import_obsidian4.Notice("\u622A\u6B62\u65E5\u671F\u683C\u5F0F\u5FC5\u987B\u662F YYYY-MM-DD");
       return;
     }
     const taskPath = await this.createTaskFile({
@@ -836,11 +1197,11 @@ var CreateTaskModal = class extends import_obsidian.Modal {
       due: this.due || void 0
     });
     const createdFile = this.app.vault.getAbstractFileByPath(taskPath);
-    if (createdFile instanceof import_obsidian.TFile) {
+    if (createdFile instanceof import_obsidian4.TFile) {
       await this.app.workspace.getLeaf(true).openFile(createdFile);
     }
     await ((_a = this.onCreated) == null ? void 0 : _a.call(this));
-    new import_obsidian.Notice("\u4EFB\u52A1\u5DF2\u521B\u5EFA");
+    new import_obsidian4.Notice("\u4EFB\u52A1\u5DF2\u521B\u5EFA");
     this.close();
   }
   async createTaskFile(input) {
@@ -852,11 +1213,11 @@ var CreateTaskModal = class extends import_obsidian.Modal {
     if (!normalizedVersion) {
       throw new Error("Version is required when creating a task");
     }
-    const filePath = (0, import_obsidian.normalizePath)(`${projectPath}/Versions/${normalizedVersion}.md`);
-    await ensureFolder(this.app, (0, import_obsidian.normalizePath)(filePath.split("/").slice(0, -1).join("/")));
+    const filePath = (0, import_obsidian4.normalizePath)(`${projectPath}/Versions/${normalizedVersion}.md`);
+    await ensureFolder(this.app, (0, import_obsidian4.normalizePath)(filePath.split("/").slice(0, -1).join("/")));
     const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
     const taskLine = buildTaskLine(input.title, input.owner, input.priority, input.due);
-    if (abstractFile instanceof import_obsidian.TFile) {
+    if (abstractFile instanceof import_obsidian4.TFile) {
       const content = await this.app.vault.read(abstractFile);
       const nextContent = appendTaskLine(content, taskLine);
       await this.app.vault.modify(abstractFile, nextContent);
@@ -871,7 +1232,7 @@ var CreateTaskModal = class extends import_obsidian.Modal {
   }
   getProjectPath(project) {
     const projectRecord = this.projects.find((item) => item.project === project);
-    return projectRecord ? (0, import_obsidian.normalizePath)(projectRecord.projectPath) : null;
+    return projectRecord ? (0, import_obsidian4.normalizePath)(projectRecord.projectPath) : null;
   }
 };
 function normalizeVersionValue(value) {
@@ -949,9 +1310,10 @@ function buildVersionFile(project, version, taskLine) {
 // src/views/dashboard-view.ts
 var PROJECT_HUB_VIEW_TYPE = "project-hub-dashboard";
 var ALL_PROJECTS_VALUE = "__all_projects__";
-var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
+var ProjectHubDashboardView = class extends import_obsidian5.ItemView {
   constructor(leaf, plugin, store) {
     super(leaf);
+    this.scopeRootPath = null;
     this.selectedProject = null;
     this.selectedVersion = null;
     this.draggingTaskId = null;
@@ -972,10 +1334,31 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     return PROJECT_HUB_VIEW_TYPE;
   }
   getDisplayText() {
-    return "Project Hub";
+    return this.scopeRootPath ? `Project Hub \xB7 ${getPathLabel(this.scopeRootPath)}` : "Project Hub";
   }
   getIcon() {
     return "layout-dashboard";
+  }
+  getState() {
+    return {
+      ...super.getState(),
+      scopeRootPath: this.scopeRootPath,
+      scopeProjectPath: this.scopeRootPath
+    };
+  }
+  async setState(state, result) {
+    var _a;
+    await super.setState(state, result);
+    const stateValue = state;
+    const nextScopeRootPath = normalizeScopeProjectPath2((_a = stateValue == null ? void 0 : stateValue.scopeRootPath) != null ? _a : stateValue == null ? void 0 : stateValue.scopeProjectPath);
+    this.scopeRootPath = nextScopeRootPath;
+    this.selectedProject = null;
+    this.selectedVersion = null;
+    this.pendingSelection = null;
+    this.preferredSelection = null;
+    if (this.headerEl || this.summaryEl || this.boardEl || this.kanbanEl) {
+      this.render();
+    }
   }
   async onOpen() {
     this.unsubscribe = this.store.subscribe(() => {
@@ -999,21 +1382,33 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     this.unsubscribe = null;
   }
   async openQuickCreateTask() {
-    const projects = this.store.getProjects();
+    const projects = this.getScopedProjects();
     if (projects.length === 0) {
-      new import_obsidian2.Notice("\u672A\u627E\u5230\u9879\u76EE\u76EE\u5F55\uFF0C\u65E0\u6CD5\u521B\u5EFA\u4EFB\u52A1");
+      new import_obsidian5.Notice("\u672A\u627E\u5230\u9879\u76EE\u76EE\u5F55\uFF0C\u65E0\u6CD5\u521B\u5EFA\u4EFB\u52A1");
       return;
     }
     new CreateTaskModal({
       app: this.app,
       projects,
-      versions: this.store.getVersions(),
+      versions: this.getScopedVersions(),
       initialProject: this.selectedProject === ALL_PROJECTS_VALUE ? null : this.selectedProject,
       initialVersion: this.selectedVersion,
       onCreated: async () => {
         await this.store.rebuild();
       }
     }).open();
+  }
+  async openQuickCreateProject() {
+    await this.plugin.openQuickCreateProject(this.scopeRootPath);
+  }
+  async openQuickCreateVersion() {
+    await this.plugin.openQuickCreateVersion(
+      this.selectedProject === ALL_PROJECTS_VALUE ? null : this.selectedProject,
+      this.scopeRootPath
+    );
+  }
+  getScopeRootPath() {
+    return this.scopeRootPath;
   }
   render() {
     const container = this.containerEl.children[1];
@@ -1033,9 +1428,9 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
       this.render();
       return;
     }
-    const projects = this.store.getProjects();
-    const versions = this.store.getVersions();
-    const tasks = this.store.getTasks();
+    const projects = this.getScopedProjects();
+    const versions = this.getScopedVersions();
+    const tasks = this.getScopedTasks();
     this.restorePendingSelection(projects, versions);
     this.syncSelection(projects, versions);
     this.renderGlobalStats(this.summaryEl, projects, versions, tasks);
@@ -1054,9 +1449,9 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     if (!this.summaryEl || !this.boardEl || !this.kanbanEl) {
       return;
     }
-    const projects = this.store.getProjects();
-    const versions = this.store.getVersions();
-    const tasks = this.store.getTasks();
+    const projects = this.getScopedProjects();
+    const versions = this.getScopedVersions();
+    const tasks = this.getScopedTasks();
     this.restorePendingSelection(projects, versions);
     this.syncSelection(projects, versions);
     this.renderGlobalStats(this.summaryEl, projects, versions, tasks);
@@ -1073,12 +1468,12 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
   }
   async syncVersionStatuses() {
     let syncedCount = 0;
-    for (const version of this.store.getVersions()) {
+    for (const version of this.getScopedVersions()) {
       if (!version.status) {
         continue;
       }
       const abstractFile = this.app.vault.getAbstractFileByPath(version.filePath);
-      if (!(abstractFile instanceof import_obsidian2.TFile)) {
+      if (!(abstractFile instanceof import_obsidian5.TFile)) {
         continue;
       }
       const content = await this.app.vault.cachedRead(abstractFile);
@@ -1163,9 +1558,17 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     const titleWrap = header.createDiv({ cls: "project-hub-dashboard-title-wrap" });
     titleWrap.createEl("h1", { text: "Project Hub Dashboard" });
     titleWrap.createEl("p", {
-      text: "\u4E00\u5C4F\u770B\u5168\u5C40 \xB7 \u4E00\u5C4F\u7BA1\u6267\u884C | \u9879\u76EE\u884C\u5F0F\u7248\u672C\u770B\u677F + \u7248\u672C\u4EFB\u52A1\u770B\u677F"
+      text: this.scopeRootPath ? `\u5F53\u524D\u9879\u76EE\u8303\u56F4\uFF1A${this.scopeRootPath}` : "\u5F53\u524D\u9879\u76EE\u8303\u56F4\uFF1A\u5168\u90E8\u9879\u76EE | \u4E00\u5C4F\u770B\u5168\u5C40 \xB7 \u4E00\u5C4F\u7BA1\u6267\u884C"
     });
     const actions = header.createDiv({ cls: "project-hub-dashboard-actions" });
+    const createProjectButton = actions.createEl("button", { text: "\u5FEB\u901F\u65B0\u589E\u9879\u76EE" });
+    createProjectButton.addEventListener("click", async () => {
+      await this.openQuickCreateProject();
+    });
+    const createVersionButton = actions.createEl("button", { text: "\u5FEB\u901F\u65B0\u589E\u7248\u672C" });
+    createVersionButton.addEventListener("click", async () => {
+      await this.openQuickCreateVersion();
+    });
     const refreshButton = actions.createEl("button", { text: "\u5237\u65B0" });
     refreshButton.addEventListener("click", async () => {
       await this.store.rebuild();
@@ -1173,7 +1576,7 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
       if (syncedCount > 0) {
         await this.store.rebuild();
       }
-      new import_obsidian2.Notice(
+      new import_obsidian5.Notice(
         syncedCount > 0 ? `Project Hub \u6570\u636E\u5DF2\u5237\u65B0\uFF0C\u5E76\u540C\u6B65 ${syncedCount} \u4E2A\u7248\u672C\u72B6\u6001` : "Project Hub \u6570\u636E\u5DF2\u5237\u65B0"
       );
     });
@@ -1182,7 +1585,7 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     container.empty();
     const section = container.createDiv({ cls: "project-hub-dashboard-card project-hub-summary-card" });
     const title = section.createDiv({ cls: "project-hub-section-title" });
-    title.setText("\u5168\u5C40\u7EDF\u8BA1\u533A \xB7 All Projects Summary");
+    title.setText(this.scopeRootPath ? "\u5F53\u524D\u770B\u677F\u7EDF\u8BA1\u533A \xB7 Scoped Summary" : "\u5168\u5C40\u7EDF\u8BA1\u533A \xB7 All Projects Summary");
     const today = todayString2();
     const completedTasks = tasks.filter((task) => task.status === "done").length;
     const inProgressTasks = tasks.filter((task) => task.status === "in-progress").length;
@@ -1211,7 +1614,7 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     const progressBar = trend.createDiv({ cls: "project-hub-burnup-bar" });
     progressBar.createDiv({ cls: "project-hub-burnup-fill" }).style.width = `${completionRate}%`;
     const miniChart = trend.createDiv({ cls: "project-hub-mini-chart" });
-    for (const value of buildMiniTrendValues(this.store.getBurndown(), completionRate)) {
+    for (const value of buildMiniTrendValues(buildBurndownPointsFromTasks(tasks), completionRate)) {
       const bar = miniChart.createDiv({ cls: "project-hub-mini-chart-bar" });
       bar.style.height = `${Math.min(100, Math.max(14, Math.round(value)))}%`;
     }
@@ -1312,8 +1715,9 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     if (this.selectedProject === version.project && this.selectedVersion === version.version) {
       card.addClass("is-active");
     }
-    card.createDiv({ cls: "project-hub-version-name", text: version.version });
-    card.createDiv({
+    const topRow = card.createDiv({ cls: "project-hub-version-row project-hub-version-row-top" });
+    topRow.createDiv({ cls: "project-hub-version-name", text: version.version });
+    topRow.createDiv({
       cls: "project-hub-version-date",
       text: `${formatShortDate(version.start)} ~ ${formatShortDate(version.end)}`
     });
@@ -1322,10 +1726,11 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
       return sum + ((_a2 = task.effort) != null ? _a2 : 0);
     }, 0);
     const versionEffort = (_a = version.effort) != null ? _a : taskEffort;
-    const effortLabel = versionEffort > 0 ? ` \xB7 ${versionEffort}h` : "";
+    const effortLabel = versionEffort > 0 ? `${versionEffort}h` : "\u672A\u4F30\u65F6";
+    const summaryParts = [`${progress}%`, effortLabel, overdue > 0 ? `\u5EF6\u671F ${overdue}` : "\u6309\u671F"];
     card.createDiv({
       cls: "project-hub-version-summary",
-      text: overdue > 0 ? `${progress}%${effortLabel} \xB7 \u5EF6\u671F ${overdue}` : `${progress}%${effortLabel} \xB7 \u6309\u671F`
+      text: summaryParts.join(" \xB7 ")
     });
     card.setAttr(
       "title",
@@ -1345,7 +1750,7 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     });
     card.addEventListener("dblclick", async () => {
       const file = this.plugin.app.vault.getAbstractFileByPath(version.filePath);
-      if (file instanceof import_obsidian2.TFile) {
+      if (file instanceof import_obsidian5.TFile) {
         await this.plugin.app.workspace.getLeaf(true).openFile(file);
       }
     });
@@ -1552,8 +1957,11 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     return versions.filter((version) => !project || project === ALL_PROJECTS_VALUE || version.project === project).sort(compareVersionRecordsDesc);
   }
   getKanbanTasks() {
-    const projectFilter = this.selectedProject && this.selectedProject !== ALL_PROJECTS_VALUE ? this.selectedProject : void 0;
-    return this.store.getTasks(projectFilter).filter((task) => {
+    const scopedTasks = this.getScopedTasks();
+    return scopedTasks.filter((task) => {
+      if (this.selectedProject && this.selectedProject !== ALL_PROJECTS_VALUE && task.project !== this.selectedProject) {
+        return false;
+      }
       if (!this.selectedVersion) {
         return true;
       }
@@ -1566,8 +1974,7 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     if (!taskId) {
       return;
     }
-    const projectFilter = this.selectedProject && this.selectedProject !== ALL_PROJECTS_VALUE ? this.selectedProject : void 0;
-    const task = this.store.getTasks(projectFilter).find((item) => item.id === taskId);
+    const task = this.getKanbanTasks().find((item) => item.id === taskId);
     if (!task) {
       return;
     }
@@ -1575,7 +1982,7 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
   }
   async openTaskFile(task) {
     const file = this.plugin.app.vault.getAbstractFileByPath(task.filePath);
-    if (file instanceof import_obsidian2.TFile) {
+    if (file instanceof import_obsidian5.TFile) {
       await this.plugin.app.workspace.getLeaf(true).openFile(file);
     }
   }
@@ -1584,8 +1991,8 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
       return;
     }
     const abstractFile = this.plugin.app.vault.getAbstractFileByPath(task.filePath);
-    if (!(abstractFile instanceof import_obsidian2.TFile)) {
-      new import_obsidian2.Notice(`\u672A\u627E\u5230\u6587\u4EF6: ${task.filePath}`);
+    if (!(abstractFile instanceof import_obsidian5.TFile)) {
+      new import_obsidian5.Notice(`\u672A\u627E\u5230\u6587\u4EF6: ${task.filePath}`);
       return;
     }
     const content = await this.plugin.app.vault.read(abstractFile);
@@ -1594,7 +2001,7 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
       nextContent = updateVersionStatusInFrontmatter(nextContent);
     }
     if (nextContent === content) {
-      new import_obsidian2.Notice("\u672A\u627E\u5230\u4EFB\u52A1\u884C\uFF0C\u65E0\u6CD5\u66F4\u65B0\u4EFB\u52A1\u72B6\u6001");
+      new import_obsidian5.Notice("\u672A\u627E\u5230\u4EFB\u52A1\u884C\uFF0C\u65E0\u6CD5\u66F4\u65B0\u4EFB\u52A1\u72B6\u6001");
       return;
     }
     this.pendingSelection = {
@@ -1610,12 +2017,12 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     await this.plugin.app.vault.modify(abstractFile, nextContent);
     await this.store.refreshFile(abstractFile);
     this.applyDragUpdate(task.project, task.id, status);
-    new import_obsidian2.Notice(`\u4EFB\u52A1\u72B6\u6001\u5DF2\u66F4\u65B0\u4E3A ${status}`);
+    new import_obsidian5.Notice(`\u4EFB\u52A1\u72B6\u6001\u5DF2\u66F4\u65B0\u4E3A ${status}`);
   }
   applyDragUpdate(projectName, taskId, status) {
-    const projects = this.store.getProjects();
-    const versions = this.store.getVersions();
-    const tasks = this.store.getTasks();
+    const projects = this.getScopedProjects();
+    const versions = this.getScopedVersions();
+    const tasks = this.getScopedTasks();
     this.restorePendingSelection(projects, versions);
     this.syncSelection(projects, versions);
     if (this.summaryEl) {
@@ -1623,6 +2030,22 @@ var ProjectHubDashboardView = class extends import_obsidian2.ItemView {
     }
     this.refreshProjectBoardRow(projectName, projects, versions, tasks);
     this.applyTaskMove(taskId, status);
+  }
+  getScopedProjects() {
+    return this.store.getProjects().filter((project) => this.matchesScope(project.projectPath));
+  }
+  getScopedVersions() {
+    return this.store.getVersions().filter((version) => this.matchesScope(version.projectPath));
+  }
+  getScopedTasks() {
+    return this.store.getTasks().filter((task) => this.matchesScope(task.projectPath));
+  }
+  matchesScope(projectPath) {
+    if (!this.scopeRootPath) {
+      return true;
+    }
+    const normalizedProjectPath = (0, import_obsidian5.normalizePath)(projectPath);
+    return normalizedProjectPath === this.scopeRootPath || normalizedProjectPath.startsWith(`${this.scopeRootPath}/`);
   }
 };
 function normalizeVersionBoardStatus(status) {
@@ -1800,23 +2223,97 @@ function deriveVersionStatusFromChecklist(lines) {
   }
   return "todo";
 }
+function buildBurndownPointsFromTasks(tasks) {
+  if (tasks.length === 0) {
+    return [];
+  }
+  const dateSet = /* @__PURE__ */ new Set();
+  for (const task of tasks) {
+    if (task.due) {
+      dateSet.add(task.due);
+    }
+    if (task.status === "done") {
+      dateSet.add(new Date(task.modifiedTime).toISOString().slice(0, 10));
+    }
+  }
+  if (dateSet.size === 0) {
+    const today = todayString2();
+    return [{ date: today, remaining: tasks.filter((task) => task.status !== "done").length, idealRemaining: 0 }];
+  }
+  const orderedDates = [...dateSet].sort();
+  const totalTasks = tasks.length;
+  return expandDateRange2(orderedDates[0], orderedDates[orderedDates.length - 1]).map((date, index, allDates) => {
+    const completedByDate = tasks.filter(
+      (task) => task.status === "done" && new Date(task.modifiedTime).toISOString().slice(0, 10) <= date
+    ).length;
+    return {
+      date,
+      remaining: totalTasks - completedByDate,
+      idealRemaining: Math.max(
+        0,
+        Math.round(totalTasks - totalTasks * index / Math.max(1, allDates.length - 1))
+      )
+    };
+  });
+}
+function expandDateRange2(startDate, endDate) {
+  const dates = [];
+  const cursor = /* @__PURE__ */ new Date(`${startDate}T00:00:00`);
+  const end = /* @__PURE__ */ new Date(`${endDate}T00:00:00`);
+  while (cursor <= end) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+}
+function getPathLabel(projectPath) {
+  var _a;
+  const segments = (0, import_obsidian5.normalizePath)(projectPath).split("/").filter((segment) => segment.length > 0);
+  return (_a = segments[segments.length - 1]) != null ? _a : projectPath;
+}
+function normalizeScopeProjectPath2(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = (0, import_obsidian5.normalizePath)(value).trim();
+  return normalized.length > 0 ? normalized : null;
+}
 
 // src/main.ts
-var ProjectHubPlugin = class extends import_obsidian3.Plugin {
+var DEFAULT_SCOPE_PATH = "wubh";
+var PROJECT_TEMPLATE_PATH = "Templates/Project.md";
+var VERSION_TEMPLATE_PATH = "Templates/Version.md";
+var ProjectHubPlugin = class extends import_obsidian6.Plugin {
+  constructor() {
+    super(...arguments);
+    this.settings = DEFAULT_SETTINGS;
+    this.ribbonIcons = [];
+  }
   async onload() {
+    await this.loadSettings();
     this.store = new ProjectStore(this.app);
     this.registerView(
       PROJECT_HUB_VIEW_TYPE,
       (leaf) => new ProjectHubDashboardView(leaf, this, this.store)
     );
-    this.addRibbonIcon("layout-dashboard", "Open Project Hub", async () => {
-      await this.activateView();
-    });
+    this.addSettingTab(new ProjectHubSettingTab(this.app, this));
+    this.refreshRibbonIcons();
     this.addCommand({
       id: "open-project-hub",
       name: "Open Project Hub dashboard",
       callback: async () => {
-        await this.activateView();
+        await this.openDashboardWithPicker({ openInNewLeaf: true });
+      }
+    });
+    this.addCommand({
+      id: "open-project-hub-in-current-leaf",
+      name: "Open Project Hub dashboard in current leaf",
+      callback: async () => {
+        const activeLeaf = this.app.workspace.activeLeaf;
+        await this.openDashboardWithPicker({
+          targetLeaf: activeLeaf != null ? activeLeaf : void 0,
+          openInNewLeaf: false
+        });
       }
     });
     this.addCommand({
@@ -1830,49 +2327,543 @@ var ProjectHubPlugin = class extends import_obsidian3.Plugin {
       id: "quick-create-project-task",
       name: "Quick create project task",
       callback: async () => {
-        const view = await this.activateView();
+        var _a;
+        const activeView = (_a = this.app.workspace.getActiveViewOfType(ProjectHubDashboardView)) != null ? _a : null;
+        const view = activeView != null ? activeView : await this.openDashboardWithPicker({ openInNewLeaf: true });
         await (view == null ? void 0 : view.openQuickCreateTask());
+      }
+    });
+    this.addCommand({
+      id: "quick-create-project",
+      name: "Quick create project",
+      callback: async () => {
+        await this.openQuickCreateProject();
+      }
+    });
+    this.addCommand({
+      id: "quick-create-version",
+      name: "Quick create version",
+      callback: async () => {
+        await this.openQuickCreateVersion();
       }
     });
     await this.store.rebuild();
     this.registerEvent(
       this.app.vault.on("create", async (file) => {
-        if (file instanceof import_obsidian3.TFile) {
+        if (file instanceof import_obsidian6.TFile) {
           await this.store.refreshFile(file);
         }
       })
     );
     this.registerEvent(
       this.app.vault.on("modify", async (file) => {
-        if (file instanceof import_obsidian3.TFile) {
+        if (file instanceof import_obsidian6.TFile) {
           await this.store.refreshFile(file);
         }
       })
     );
     this.registerEvent(
       this.app.vault.on("delete", async (file) => {
-        if (file instanceof import_obsidian3.TFile) {
+        if (file instanceof import_obsidian6.TFile) {
           this.store.removeFile(file.path);
         }
       })
     );
   }
   async onunload() {
+    this.clearRibbonIcons();
     await this.app.workspace.detachLeavesOfType(PROJECT_HUB_VIEW_TYPE);
   }
-  async activateView() {
-    const { workspace } = this.app;
-    let leaf = workspace.getLeavesOfType(PROJECT_HUB_VIEW_TYPE)[0];
-    if (!leaf) {
-      leaf = workspace.getRightLeaf(false);
-      await (leaf == null ? void 0 : leaf.setViewState({ type: PROJECT_HUB_VIEW_TYPE, active: true }));
+  async loadSettings() {
+    const loaded = await this.loadData();
+    this.settings = normalizeSettings(loaded);
+  }
+  async saveSettings() {
+    await this.saveData(this.settings);
+    this.refreshRibbonIcons();
+  }
+  async rebuildStore() {
+    await this.store.rebuild();
+  }
+  async addScopeSetting() {
+    this.settings.scopes = [
+      ...this.settings.scopes,
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        path: "wubh",
+        icon: "layout-dashboard"
+      }
+    ];
+    await this.saveSettings();
+  }
+  async updateScopeSetting(scopeId, patch) {
+    const nextScopes = this.settings.scopes.map((scope) => {
+      if (scope.id !== scopeId) {
+        return scope;
+      }
+      const nextPath = typeof patch.path === "string" ? normalizeScopePath(patch.path) : scope.path;
+      return {
+        ...scope,
+        path: nextPath,
+        icon: typeof patch.icon === "string" ? normalizeScopeIcon(patch.icon) : scope.icon
+      };
+    });
+    this.settings = { scopes: nextScopes };
+    await this.saveSettings();
+  }
+  async replaceScopeSettings(scopes) {
+    this.settings = {
+      scopes: scopes.map((scope) => ({
+        ...scope,
+        path: normalizeScopePath(scope.path),
+        icon: normalizeScopeIcon(scope.icon)
+      }))
+    };
+    await this.saveSettings();
+  }
+  async removeScopeSetting(scopeId) {
+    this.settings = {
+      scopes: this.settings.scopes.filter((scope) => scope.id !== scopeId)
+    };
+    await this.saveSettings();
+  }
+  getConfiguredScopes() {
+    const seen = /* @__PURE__ */ new Set();
+    return this.settings.scopes.map((scope) => ({
+      ...scope,
+      path: normalizeScopePath(scope.path),
+      icon: normalizeScopeIcon(scope.icon)
+    })).filter((scope) => scope.path.length > 0).filter((scope) => {
+      const key = scope.path.toLowerCase();
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }
+  getProjectsForScope(scopePath) {
+    const normalizedScopePath = normalizeScopePath(scopePath);
+    return this.store.getProjects().filter((project) => isProjectInScope(project.projectPath, normalizedScopePath));
+  }
+  getProjectFolderNamesForScope(scopePath) {
+    const normalizedScopePath = normalizeScopePath(scopePath);
+    if (!normalizedScopePath) {
+      return [];
     }
+    const abstractFile = this.app.vault.getAbstractFileByPath(normalizedScopePath);
+    if (!(abstractFile instanceof import_obsidian6.TFolder)) {
+      return [];
+    }
+    return abstractFile.children.filter((child) => child instanceof import_obsidian6.TFolder).map((folder) => folder.name).sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
+  }
+  async pickProjectScope(initialScope) {
+    var _a;
+    const configuredScopes = this.getConfiguredScopes().map((scope) => scope.path);
+    const scopeRootPaths = configuredScopes.length > 0 ? configuredScopes : [...new Set(
+      this.store.getProjects().map((project) => getProjectScopeRoot2(project.projectPath)).filter((value) => Boolean(value))
+    )];
+    if (scopeRootPaths.length === 0) {
+      return null;
+    }
+    if (scopeRootPaths.length === 1) {
+      return (_a = scopeRootPaths[0]) != null ? _a : null;
+    }
+    return new Promise((resolve) => {
+      new ProjectFolderSuggestModal(
+        this.app,
+        this.store.getProjects(),
+        {
+          initialScope,
+          onChoose: (scopeRootPath) => {
+            resolve(scopeRootPath);
+          },
+          onCancel: () => {
+            resolve(void 0);
+          }
+        },
+        this.getConfiguredScopes()
+      ).open();
+    });
+  }
+  async openDashboardWithPicker(options) {
+    const scopeRootPath = await this.pickProjectScope(options == null ? void 0 : options.initialScope);
+    if (scopeRootPath === void 0) {
+      return null;
+    }
+    return this.activateView({
+      targetLeaf: options == null ? void 0 : options.targetLeaf,
+      openInNewLeaf: options == null ? void 0 : options.openInNewLeaf,
+      scopeRootPath
+    });
+  }
+  async activateView(options) {
+    var _a, _b, _c, _d, _e, _f;
+    const { workspace } = this.app;
+    const existingLeaf = !(options == null ? void 0 : options.targetLeaf) ? await this.findOpenDashboardLeaf((_a = options == null ? void 0 : options.scopeRootPath) != null ? _a : null) : null;
+    if ((existingLeaf == null ? void 0 : existingLeaf.view) instanceof ProjectHubDashboardView) {
+      workspace.revealLeaf(existingLeaf);
+      return existingLeaf.view;
+    }
+    let leaf = (_c = options == null ? void 0 : options.targetLeaf) != null ? _c : workspace.getLeaf((_b = options == null ? void 0 : options.openInNewLeaf) != null ? _b : false);
+    const state = {
+      scopeRootPath: (_d = options == null ? void 0 : options.scopeRootPath) != null ? _d : null,
+      scopeProjectPath: (_e = options == null ? void 0 : options.scopeRootPath) != null ? _e : null
+    };
+    await (leaf == null ? void 0 : leaf.setViewState({
+      type: PROJECT_HUB_VIEW_TYPE,
+      active: true,
+      state
+    }));
     if (leaf) {
       workspace.revealLeaf(leaf);
       if (leaf.view instanceof ProjectHubDashboardView) {
         return leaf.view;
       }
+      const fallbackLeaf = (_f = workspace.getLeavesOfType(PROJECT_HUB_VIEW_TYPE).find((candidate) => candidate === leaf)) != null ? _f : workspace.getLeavesOfType(PROJECT_HUB_VIEW_TYPE).at(-1);
+      if ((fallbackLeaf == null ? void 0 : fallbackLeaf.view) instanceof ProjectHubDashboardView) {
+        workspace.revealLeaf(fallbackLeaf);
+        return fallbackLeaf.view;
+      }
     }
     return null;
   }
+  async openConfiguredScope(scopePath, options) {
+    var _a;
+    const normalizedScopePath = normalizeScopePath(scopePath);
+    if (!normalizedScopePath) {
+      new import_obsidian6.Notice("Project Hub \u9879\u76EE\u8DEF\u5F84\u4E0D\u80FD\u4E3A\u7A7A");
+      return null;
+    }
+    return this.activateView({
+      targetLeaf: options == null ? void 0 : options.targetLeaf,
+      openInNewLeaf: (_a = options == null ? void 0 : options.openInNewLeaf) != null ? _a : true,
+      scopeRootPath: normalizedScopePath
+    });
+  }
+  async openQuickCreateProject(scopeRootPath) {
+    var _a, _b;
+    const scopes = this.getConfiguredScopes();
+    const initialScopePath = (_b = scopeRootPath != null ? scopeRootPath : (_a = scopes[0]) == null ? void 0 : _a.path) != null ? _b : DEFAULT_SCOPE_PATH;
+    new CreateProjectModal({
+      app: this.app,
+      scopes: scopes.length > 0 ? scopes.map((scope) => ({ path: scope.path })) : [{ path: initialScopePath }],
+      initialScopePath,
+      onSubmit: async ({ scopePath, projectName }) => {
+        await this.createProjectNote(scopePath, projectName);
+      }
+    }).open();
+  }
+  async openQuickCreateVersion(initialProject, scopeRootPath) {
+    const projects = scopeRootPath ? this.getProjectsForScope(scopeRootPath) : this.store.getProjects();
+    if (projects.length === 0) {
+      new import_obsidian6.Notice("\u5F53\u524D\u8303\u56F4\u5185\u6CA1\u6709\u9879\u76EE\uFF0C\u65E0\u6CD5\u521B\u5EFA\u7248\u672C");
+      return;
+    }
+    new CreateVersionModal({
+      app: this.app,
+      projects,
+      initialProject,
+      onSubmit: async ({ project, version }) => {
+        await this.createVersionNote(project, version);
+      }
+    }).open();
+  }
+  refreshRibbonIcons() {
+    this.clearRibbonIcons();
+    const scopes = this.getConfiguredScopes();
+    if (scopes.length === 0) {
+      const iconEl = this.addRibbonIcon("layout-dashboard", "Open Project Hub", async () => {
+        await this.openDashboardWithPicker({ openInNewLeaf: true });
+      });
+      this.ribbonIcons.push(iconEl);
+      return;
+    }
+    for (const scope of scopes) {
+      const title = `Open Project Hub: ${buildScopeDisplayName(scope)}`;
+      const iconEl = this.addRibbonIcon(normalizeScopeIcon(scope.icon), title, async () => {
+        await this.openConfiguredScope(scope.path, { openInNewLeaf: true });
+      });
+      iconEl.addClass("project-hub-ribbon-icon");
+      iconEl.setAttr("aria-label", title);
+      this.ribbonIcons.push(iconEl);
+    }
+  }
+  clearRibbonIcons() {
+    for (const iconEl of this.ribbonIcons) {
+      iconEl.remove();
+    }
+    this.ribbonIcons = [];
+  }
+  async findOpenDashboardLeaf(scopeRootPath) {
+    var _a, _b, _c;
+    const targetScope = normalizeNullableScope(scopeRootPath);
+    for (const leaf of this.app.workspace.getLeavesOfType(PROJECT_HUB_VIEW_TYPE)) {
+      if (leaf.isDeferred) {
+        await leaf.loadIfDeferred();
+      }
+      const viewState = leaf.getViewState();
+      const leafScope = normalizeNullableScope((_c = (_a = viewState.state) == null ? void 0 : _a.scopeRootPath) != null ? _c : (_b = viewState.state) == null ? void 0 : _b.scopeProjectPath);
+      if (leafScope === targetScope) {
+        return leaf;
+      }
+    }
+    return null;
+  }
+  async createProjectNote(scopePath, projectName) {
+    const normalizedScopePath = normalizeScopePath(scopePath);
+    const normalizedProjectName = sanitizePathSegment(projectName);
+    if (!normalizedScopePath || !normalizedProjectName) {
+      new import_obsidian6.Notice("\u9879\u76EE\u8DEF\u5F84\u6216\u9879\u76EE\u540D\u79F0\u65E0\u6548");
+      return;
+    }
+    const projectFolderPath = (0, import_obsidian6.normalizePath)(`${normalizedScopePath}/${normalizedProjectName}`);
+    const projectFilePath = (0, import_obsidian6.normalizePath)(`${projectFolderPath}/00_Project.md`);
+    const roadmapFilePath = (0, import_obsidian6.normalizePath)(`${projectFolderPath}/01_Roadmap.md`);
+    const versionsFolderPath = (0, import_obsidian6.normalizePath)(`${projectFolderPath}/Versions`);
+    await ensureFolder2(this.app, projectFolderPath);
+    await ensureFolder2(this.app, versionsFolderPath);
+    await ensureFile(this.app, roadmapFilePath);
+    const projectFileResult = await ensureFile(this.app, projectFilePath);
+    await this.initializeProjectFile(projectFileResult.file, normalizedProjectName, projectFileResult.created);
+    await this.store.rebuild();
+  }
+  async createVersionNote(projectName, versionName) {
+    const projectRecord = this.store.getProjects().find((project) => project.project === projectName);
+    if (!projectRecord) {
+      new import_obsidian6.Notice(`\u672A\u627E\u5230\u9879\u76EE: ${projectName}`);
+      return;
+    }
+    const normalizedVersion = normalizeVersionName(versionName);
+    if (!normalizedVersion) {
+      new import_obsidian6.Notice("\u7248\u672C\u53F7\u65E0\u6548");
+      return;
+    }
+    const filePath = (0, import_obsidian6.normalizePath)(`${projectRecord.projectPath}/Versions/${normalizedVersion}.md`);
+    const versionFileResult = await ensureFile(this.app, filePath);
+    await this.initializeVersionFile(versionFileResult.file, projectRecord.project, normalizedVersion, versionFileResult.created);
+    await this.store.rebuild();
+  }
+  async initializeProjectFile(file, projectName, isNewFile) {
+    const templateApplied = isNewFile ? await this.writeQuickCreateFile(
+      file,
+      buildProjectFrontmatter(projectName),
+      PROJECT_TEMPLATE_PATH,
+      buildDefaultProjectBody(projectName),
+      {
+        project: projectName,
+        title: projectName
+      }
+    ) : false;
+    await this.openCreatedFile(file, "\u9879\u76EE\u5DF2\u521B\u5EFA", isNewFile, templateApplied ? PROJECT_TEMPLATE_PATH : null);
+  }
+  async initializeVersionFile(file, projectName, versionName, isNewFile) {
+    const templateApplied = isNewFile ? await this.writeQuickCreateFile(
+      file,
+      buildVersionFrontmatter(projectName, versionName),
+      VERSION_TEMPLATE_PATH,
+      buildDefaultVersionBody(versionName),
+      {
+        project: projectName,
+        version: versionName,
+        title: `V${versionName}`
+      }
+    ) : false;
+    await this.openCreatedFile(file, "\u7248\u672C\u5DF2\u521B\u5EFA", isNewFile, templateApplied ? VERSION_TEMPLATE_PATH : null);
+  }
+  async writeQuickCreateFile(file, frontmatter, templatePath, fallbackBody, templateContext) {
+    const templateBody = await this.loadQuickCreateTemplate(templatePath, templateContext);
+    const content = buildQuickCreateContent(frontmatter, templateBody != null ? templateBody : fallbackBody).replace(/\n{3,}/g, "\n\n");
+    await this.app.vault.modify(file, content.trimEnd() + "\n");
+    return templateBody !== null;
+  }
+  async loadQuickCreateTemplate(templatePath, templateContext) {
+    const templateFile = this.app.vault.getAbstractFileByPath(templatePath);
+    if (!(templateFile instanceof import_obsidian6.TFile)) {
+      return null;
+    }
+    const templateContent = await this.app.vault.cachedRead(templateFile);
+    const renderedTemplate = renderQuickCreateTemplate(templateContent, {
+      ...templateContext,
+      today: getTodayString(),
+      fileName: templateFile.basename
+    }).trim();
+    if (!renderedTemplate) {
+      return null;
+    }
+    return renderedTemplate;
+  }
+  async openCreatedFile(file, successMessage, isNewFile, templatePath) {
+    const leaf = this.app.workspace.getLeaf(true);
+    await leaf.openFile(file);
+    this.app.workspace.revealLeaf(leaf);
+    if (!isNewFile) {
+      new import_obsidian6.Notice(`${successMessage}\uFF0C\u6587\u4EF6\u5DF2\u5B58\u5728\uFF0C\u5DF2\u76F4\u63A5\u6253\u5F00`);
+      return;
+    }
+    new import_obsidian6.Notice(templatePath ? `${successMessage}\uFF0C\u5DF2\u6309 ${templatePath} \u521D\u59CB\u5316` : `${successMessage}\uFF0C\u5DF2\u5199\u5165\u9ED8\u8BA4\u6587\u4EF6\u5C5E\u6027`);
+  }
 };
+function getProjectScopeRoot2(projectPath) {
+  var _a;
+  const segments = projectPath.replace(/\\/g, "/").split("/").filter((segment) => segment.length > 0);
+  if (segments.length <= 1) {
+    return (_a = segments[0]) != null ? _a : null;
+  }
+  return segments.slice(0, -1).join("/");
+}
+function isProjectInScope(projectPath, scopePath) {
+  const normalizedProjectPath = normalizeScopePath(projectPath);
+  return normalizedProjectPath === scopePath || normalizedProjectPath.startsWith(`${scopePath}/`);
+}
+function normalizeNullableScope(value) {
+  return typeof value === "string" && value.trim().length > 0 ? normalizeScopePath(value) : null;
+}
+async function ensureFolder2(app, folderPath) {
+  const parts = (0, import_obsidian6.normalizePath)(folderPath).split("/").filter((part) => part.length > 0);
+  let current = "";
+  for (const part of parts) {
+    current = current ? `${current}/${part}` : part;
+    if (!app.vault.getAbstractFileByPath(current)) {
+      await app.vault.createFolder(current);
+    }
+  }
+}
+async function ensureFile(app, filePath) {
+  const normalizedFilePath = (0, import_obsidian6.normalizePath)(filePath);
+  const existing = app.vault.getAbstractFileByPath(normalizedFilePath);
+  if (existing instanceof import_obsidian6.TFile) {
+    return { file: existing, created: false };
+  }
+  await ensureFolder2(app, normalizedFilePath.split("/").slice(0, -1).join("/"));
+  return { file: await app.vault.create(normalizedFilePath, ""), created: true };
+}
+function sanitizePathSegment(value) {
+  return value.trim().replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ");
+}
+function normalizeVersionName(value) {
+  return sanitizePathSegment(value).replace(/^V(?=\d)/i, "");
+}
+function buildProjectFrontmatter(projectName) {
+  const today = getTodayString();
+  return [
+    "---",
+    "type: project",
+    `name: ${projectName}`,
+    "owner:",
+    "status: active",
+    `start: ${today}`,
+    "end:",
+    "---",
+    ""
+  ].join("\n");
+}
+function buildVersionFrontmatter(projectName, versionName) {
+  const today = getTodayString();
+  return [
+    "---",
+    "type: version",
+    `project: ${projectName}`,
+    `version: ${versionName}`,
+    "status: todo",
+    `start: ${today}`,
+    "end:",
+    "effort:",
+    "---",
+    ""
+  ].join("\n");
+}
+function buildDefaultProjectBody(projectName) {
+  return [
+    `# ${projectName}`,
+    "",
+    "## \u7B80\u4ECB",
+    "",
+    "## \u5F53\u524D\u76EE\u6807",
+    "",
+    "- [ ] "
+  ].join("\n");
+}
+function buildDefaultVersionBody(versionName) {
+  return [
+    `# V${versionName}`,
+    "",
+    "## Goal",
+    "",
+    "## Tasks",
+    "",
+    "- [ ] "
+  ].join("\n");
+}
+function renderQuickCreateTemplate(template, context) {
+  return template.replace(/{{\s*([^}]+)\s*}}/g, (match, rawKey) => {
+    var _a, _b, _c, _d;
+    const key = rawKey.trim();
+    if (key === "date:YYYY-MM-DD") {
+      return (_a = context.today) != null ? _a : match;
+    }
+    if (key === "title") {
+      return (_c = (_b = context.title) != null ? _b : context.fileName) != null ? _c : match;
+    }
+    return (_d = context[key]) != null ? _d : match;
+  });
+}
+function getTodayString() {
+  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+}
+function buildQuickCreateContent(requiredFrontmatter, templateContent) {
+  const templateParts = splitFrontmatter(templateContent);
+  if (!templateParts.frontmatter) {
+    return `${requiredFrontmatter}${templateContent}`;
+  }
+  const mergedFrontmatter = /* @__PURE__ */ new Map();
+  for (const [key, value] of parseFrontmatterEntries(templateParts.frontmatter)) {
+    mergedFrontmatter.set(key, value);
+  }
+  for (const [key, value] of parseFrontmatterEntries(requiredFrontmatter)) {
+    mergedFrontmatter.set(key, value);
+  }
+  return `${serializeFrontmatter(mergedFrontmatter)}${templateParts.body.trimStart()}`;
+}
+function splitFrontmatter(content) {
+  if (!content.startsWith("---")) {
+    return { frontmatter: null, body: content };
+  }
+  const lines = content.split(/\r?\n/);
+  if (lines[0].trim() !== "---") {
+    return { frontmatter: null, body: content };
+  }
+  for (let index = 1; index < lines.length; index += 1) {
+    if (lines[index].trim() === "---") {
+      return {
+        frontmatter: lines.slice(0, index + 1).join("\n"),
+        body: lines.slice(index + 1).join("\n")
+      };
+    }
+  }
+  return { frontmatter: null, body: content };
+}
+function parseFrontmatterEntries(frontmatterBlock) {
+  const entries = [];
+  const lines = frontmatterBlock.split(/\r?\n/);
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.trim() === "---") {
+      break;
+    }
+    const match = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+    if (!match) {
+      continue;
+    }
+    entries.push([match[1], match[2]]);
+  }
+  return entries;
+}
+function serializeFrontmatter(entries) {
+  const lines = ["---"];
+  for (const [key, value] of entries) {
+    lines.push(value.length > 0 ? `${key}: ${value}` : `${key}:`);
+  }
+  lines.push("---", "");
+  return lines.join("\n");
+}

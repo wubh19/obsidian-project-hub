@@ -752,8 +752,8 @@
 
 .project-hub-version-grid {
   display: grid;
-  grid-template-columns: 220px 1fr 1fr 1fr;
-  min-width: 840px;
+  grid-template-columns: 188px 1fr 1fr 1fr;
+  min-width: 720px;
   border-top: 1px solid var(--project-hub-line);
 }
 
@@ -765,15 +765,16 @@
   background: var(--project-hub-panel-muted);
   font-weight: 700;
   color: var(--text-muted);
-  padding: 12px 10px;
+  padding: 9px 8px;
   border-bottom: 2px solid var(--project-hub-line-strong);
   text-align: center;
-  font-size: 0.8rem;
+  text-align: center;
+  font-size: 0.75rem;
 }
 
 .project-hub-grid-header:first-child {
   text-align: left;
-  padding-left: 20px;
+  padding-left: 14px;
 }
 
 .project-hub-grid-header-multiline {
@@ -789,7 +790,7 @@
 }
 
 .project-hub-grid-cell {
-  padding: 12px;
+  padding: 8px;
   border-bottom: 1px solid var(--project-hub-line);
   border-right: 1px solid var(--project-hub-line);
   vertical-align: top;
@@ -802,13 +803,13 @@
 
 .project-hub-project-name-cell {
   font-weight: 700;
-  padding: 14px 12px;
+  padding: 10px 10px 10px 12px;
   border-left: 3px solid var(--project-hub-accent);
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: flex-start;
-  gap: 6px;
+  gap: 4px;
 }
 
 .project-hub-project-name {
@@ -819,9 +820,9 @@
 .project-hub-project-badge,
 .project-hub-assignee {
   background: var(--background-modifier-hover);
-  padding: 3px 8px;
+  padding: 2px 7px;
   border-radius: 999px;
-  font-size: 0.7rem;
+  font-size: 0.66rem;
   font-weight: 500;
   color: var(--text-muted);
 }
@@ -829,20 +830,21 @@
 .project-hub-version-cards-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .project-hub-version-card {
   background: var(--project-hub-panel);
-  border-radius: 8px;
-  padding: 12px;
+  border-radius: 7px;
+  padding: 8px 9px;
   box-shadow: none;
   border: 1px solid var(--project-hub-line);
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
+  min-height: 52px;
 }
 
 .project-hub-version-card:hover {
@@ -857,22 +859,35 @@
   background: var(--background-secondary);
 }
 
+.project-hub-version-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
 .project-hub-version-name {
   font-weight: 700;
-  font-size: 0.9rem;
+  font-size: 0.84rem;
   color: var(--text-normal);
+  line-height: 1.2;
+  min-width: 0;
 }
 
 .project-hub-version-date {
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: var(--text-muted);
   margin: 0;
+  flex-shrink: 0;
+  line-height: 1.2;
 }
 
 .project-hub-version-summary {
-  font-size: 0.72rem;
+  font-size: 0.69rem;
   color: var(--text-muted);
   font-weight: 500;
+  line-height: 1.25;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -881,15 +896,16 @@
 .project-hub-version-empty {
   color: var(--text-faint);
   text-align: center;
-  padding: 12px;
+  padding: 8px;
+  font-size: 0.72rem;
 }
 
 .project-hub-expand-btn {
   background: var(--background-secondary);
   border: 1px solid var(--project-hub-line);
   border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 0.72rem;
+  padding: 4px 10px;
+  font-size: 0.68rem;
   font-weight: 600;
   color: var(--text-muted);
   cursor: pointer;

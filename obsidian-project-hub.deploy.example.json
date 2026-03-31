@@ -1,5 +1,6 @@
 {
   "vaultPath": "C:/path/to/YourVault",
   "pluginId": "obsidian-project-hub",
+  "managedProjectsTargetPath": "wubh",
   "copyManagedProjects": true
 }

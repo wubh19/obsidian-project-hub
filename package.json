@@ -1,6 +1,6 @@
 {
   "name": "obsidian-project-hub",
-  "version": "0.4.13",
+  "version": "0.4.19",
   "private": true,
   "description": "Obsidian plugin for project, version, and task management with Markdown and YAML.",
   "scripts": {

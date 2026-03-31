@@ -27,10 +27,10 @@ npm.cmd run release
 如果是准备一个新版本，先执行：
 
 ```powershell
-npm.cmd run version:bump -- 0.4.2
+npm.cmd run version:bump -- 0.4.19
 ```
 
-再补完 `docs/releases/0.4.2.md` 中的内容与勾选项，然后执行：
+再补完 `docs/releases/0.4.19.md` 中的内容与勾选项，然后执行：
 
 ```powershell
 npm.cmd run release
@@ -44,6 +44,8 @@ npm.cmd run release
     - 插件文件 `main.js`、`manifest.json`、`styles.css`
    - 当前项目数据 `Projects/obsidian-project-hub/**`
 
+当前默认项目容器路径已迁移为 `wubh`。如果已有旧配置 `Projects` 或 `Project`，插件会在加载设置时自动迁移到 `wubh`。
+
 首次执行前，先在仓库根目录创建本地配置文件：
 
 ```powershell
@@ -54,11 +56,13 @@ Copy-Item .\obsidian-project-hub.deploy.example.json .\obsidian-project-hub.depl
 
 ```json
 {
-   "vaultPath": "C:/path/to/YourVault"
+   "vaultPath": "C:/path/to/YourVault",
+   "managedProjectsTargetPath": "wubh"
 }
 ```
 
 当前仓库已经生成本地配置文件，并指向检测到的 Vault：`C:/wubh/note/ingenico`。
+受管项目会默认同步到 Vault 下的 `wubh/`。
 
 打包产物为项目根目录中的：
 

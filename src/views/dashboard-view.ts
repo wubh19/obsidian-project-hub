@@ -1,7 +1,8 @@
-import { ItemView, Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { ItemView, Notice, TFile, ViewStateResult, WorkspaceLeaf, normalizePath } from "obsidian";
 import { ProjectStore } from "../core/store";
 import { CreateTaskModal } from "../modals/create-task-modal";
 import { BurndownPoint, ProjectRecord, TaskRecord, VersionRecord } from "../types";
+import type ProjectHubPlugin from "../main";
 
 export const PROJECT_HUB_VIEW_TYPE = "project-hub-dashboard";
 const ALL_PROJECTS_VALUE = "__all_projects__";
@@ -9,8 +10,9 @@ const ALL_PROJECTS_VALUE = "__all_projects__";
 type StatusOption = TaskRecord["status"];
 
 export class ProjectHubDashboardView extends ItemView {
-  private readonly plugin: Plugin;
+  private readonly plugin: ProjectHubPlugin;
   private readonly store: ProjectStore;
+  private scopeRootPath: string | null = null;
   private selectedProject: string | null = null;
   private selectedVersion: string | null = null;
   private draggingTaskId: string | null = null;
@@ -25,7 +27,7 @@ export class ProjectHubDashboardView extends ItemView {
   private suppressRenderCount = 0;
   private unsubscribe: (() => void) | null = null;
 
-  constructor(leaf: WorkspaceLeaf, plugin: Plugin, store: ProjectStore) {
+  constructor(leaf: WorkspaceLeaf, plugin: ProjectHubPlugin, store: ProjectStore) {
     super(leaf);
     this.plugin = plugin;
     this.store = store;
@@ -36,11 +38,34 @@ export class ProjectHubDashboardView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "Project Hub";
+    return this.scopeRootPath ? `Project Hub · ${getPathLabel(this.scopeRootPath)}` : "Project Hub";
   }
 
   getIcon(): string {
     return "layout-dashboard";
+  }
+
+  override getState(): Record<string, unknown> {
+    return {
+      ...super.getState(),
+      scopeRootPath: this.scopeRootPath,
+      scopeProjectPath: this.scopeRootPath
+    };
+  }
+
+  override async setState(state: unknown, result: ViewStateResult): Promise<void> {
+    await super.setState(state, result);
+    const stateValue = state as { scopeRootPath?: unknown; scopeProjectPath?: unknown } | null;
+    const nextScopeRootPath = normalizeScopeProjectPath(stateValue?.scopeRootPath ?? stateValue?.scopeProjectPath);
+    this.scopeRootPath = nextScopeRootPath;
+    this.selectedProject = null;
+    this.selectedVersion = null;
+    this.pendingSelection = null;
+    this.preferredSelection = null;
+
+    if (this.headerEl || this.summaryEl || this.boardEl || this.kanbanEl) {
+      this.render();
+    }
   }
 
   async onOpen(): Promise<void> {
@@ -68,7 +93,7 @@ export class ProjectHubDashboardView extends ItemView {
   }
 
   async openQuickCreateTask(): Promise<void> {
-    const projects = this.store.getProjects();
+    const projects = this.getScopedProjects();
     if (projects.length === 0) {
       new Notice("未找到项目目录，无法创建任务");
       return;
@@ -77,13 +102,28 @@ export class ProjectHubDashboardView extends ItemView {
     new CreateTaskModal({
       app: this.app,
       projects,
-      versions: this.store.getVersions(),
+      versions: this.getScopedVersions(),
       initialProject: this.selectedProject === ALL_PROJECTS_VALUE ? null : this.selectedProject,
       initialVersion: this.selectedVersion,
       onCreated: async () => {
         await this.store.rebuild();
       }
     }).open();
+  }
+
+  async openQuickCreateProject(): Promise<void> {
+    await this.plugin.openQuickCreateProject(this.scopeRootPath);
+  }
+
+  async openQuickCreateVersion(): Promise<void> {
+    await this.plugin.openQuickCreateVersion(
+      this.selectedProject === ALL_PROJECTS_VALUE ? null : this.selectedProject,
+      this.scopeRootPath
+    );
+  }
+
+  getScopeRootPath(): string | null {
+    return this.scopeRootPath;
   }
 
   private render(): void {
@@ -109,9 +149,9 @@ export class ProjectHubDashboardView extends ItemView {
       return;
     }
 
-    const projects = this.store.getProjects();
-    const versions = this.store.getVersions();
-    const tasks = this.store.getTasks();
+    const projects = this.getScopedProjects();
+    const versions = this.getScopedVersions();
+    const tasks = this.getScopedTasks();
     this.restorePendingSelection(projects, versions);
     this.syncSelection(projects, versions);
 
@@ -135,9 +175,9 @@ export class ProjectHubDashboardView extends ItemView {
       return;
     }
 
-    const projects = this.store.getProjects();
-    const versions = this.store.getVersions();
-    const tasks = this.store.getTasks();
+    const projects = this.getScopedProjects();
+    const versions = this.getScopedVersions();
+    const tasks = this.getScopedTasks();
 
     this.restorePendingSelection(projects, versions);
     this.syncSelection(projects, versions);
@@ -159,7 +199,7 @@ export class ProjectHubDashboardView extends ItemView {
   private async syncVersionStatuses(): Promise<number> {
     let syncedCount = 0;
 
-    for (const version of this.store.getVersions()) {
+    for (const version of this.getScopedVersions()) {
       if (!version.status) {
         continue;
       }
@@ -274,10 +314,22 @@ export class ProjectHubDashboardView extends ItemView {
     const titleWrap = header.createDiv({ cls: "project-hub-dashboard-title-wrap" });
     titleWrap.createEl("h1", { text: "Project Hub Dashboard" });
     titleWrap.createEl("p", {
-      text: "一屏看全局 · 一屏管执行 | 项目行式版本看板 + 版本任务看板"
+      text: this.scopeRootPath
+        ? `当前项目范围：${this.scopeRootPath}`
+        : "当前项目范围：全部项目 | 一屏看全局 · 一屏管执行"
     });
 
     const actions = header.createDiv({ cls: "project-hub-dashboard-actions" });
+    const createProjectButton = actions.createEl("button", { text: "快速新增项目" });
+    createProjectButton.addEventListener("click", async () => {
+      await this.openQuickCreateProject();
+    });
+
+    const createVersionButton = actions.createEl("button", { text: "快速新增版本" });
+    createVersionButton.addEventListener("click", async () => {
+      await this.openQuickCreateVersion();
+    });
+
     const refreshButton = actions.createEl("button", { text: "刷新" });
     refreshButton.addEventListener("click", async () => {
       await this.store.rebuild();
@@ -297,7 +349,7 @@ export class ProjectHubDashboardView extends ItemView {
     container.empty();
     const section = container.createDiv({ cls: "project-hub-dashboard-card project-hub-summary-card" });
     const title = section.createDiv({ cls: "project-hub-section-title" });
-    title.setText("全局统计区 · All Projects Summary");
+    title.setText(this.scopeRootPath ? "当前看板统计区 · Scoped Summary" : "全局统计区 · All Projects Summary");
 
     const today = todayString();
     const completedTasks = tasks.filter((task) => task.status === "done").length;
@@ -330,7 +382,7 @@ export class ProjectHubDashboardView extends ItemView {
     progressBar.createDiv({ cls: "project-hub-burnup-fill" }).style.width = `${completionRate}%`;
 
     const miniChart = trend.createDiv({ cls: "project-hub-mini-chart" });
-    for (const value of buildMiniTrendValues(this.store.getBurndown(), completionRate)) {
+    for (const value of buildMiniTrendValues(buildBurndownPointsFromTasks(tasks), completionRate)) {
       const bar = miniChart.createDiv({ cls: "project-hub-mini-chart-bar" });
       bar.style.height = `${Math.min(100, Math.max(14, Math.round(value)))}%`;
     }
@@ -470,18 +522,20 @@ export class ProjectHubDashboardView extends ItemView {
       card.addClass("is-active");
     }
 
-    card.createDiv({ cls: "project-hub-version-name", text: version.version });
-    card.createDiv({
+    const topRow = card.createDiv({ cls: "project-hub-version-row project-hub-version-row-top" });
+    topRow.createDiv({ cls: "project-hub-version-name", text: version.version });
+    topRow.createDiv({
       cls: "project-hub-version-date",
       text: `${formatShortDate(version.start)} ~ ${formatShortDate(version.end)}`
     });
 
     const taskEffort = versionTasks.reduce((sum, task) => sum + (task.effort ?? 0), 0);
     const versionEffort = version.effort ?? taskEffort;
-    const effortLabel = versionEffort > 0 ? ` · ${versionEffort}h` : "";
+    const effortLabel = versionEffort > 0 ? `${versionEffort}h` : "未估时";
+    const summaryParts = [`${progress}%`, effortLabel, overdue > 0 ? `延期 ${overdue}` : "按期"];
     card.createDiv({
       cls: "project-hub-version-summary",
-      text: overdue > 0 ? `${progress}%${effortLabel} · 延期 ${overdue}` : `${progress}%${effortLabel} · 按期`
+      text: summaryParts.join(" · ")
     });
 
     card.setAttr(
@@ -750,11 +804,12 @@ export class ProjectHubDashboardView extends ItemView {
   }
 
   private getKanbanTasks(): TaskRecord[] {
-    const projectFilter = this.selectedProject && this.selectedProject !== ALL_PROJECTS_VALUE
-      ? this.selectedProject
-      : undefined;
+    const scopedTasks = this.getScopedTasks();
+    return scopedTasks.filter((task) => {
+      if (this.selectedProject && this.selectedProject !== ALL_PROJECTS_VALUE && task.project !== this.selectedProject) {
+        return false;
+      }
 
-    return this.store.getTasks(projectFilter).filter((task) => {
       if (!this.selectedVersion) {
         return true;
       }
@@ -770,10 +825,7 @@ export class ProjectHubDashboardView extends ItemView {
       return;
     }
 
-    const projectFilter = this.selectedProject && this.selectedProject !== ALL_PROJECTS_VALUE
-      ? this.selectedProject
-      : undefined;
-    const task = this.store.getTasks(projectFilter).find((item) => item.id === taskId);
+    const task = this.getKanbanTasks().find((item) => item.id === taskId);
     if (!task) {
       return;
     }
@@ -826,9 +878,9 @@ export class ProjectHubDashboardView extends ItemView {
   }
 
   private applyDragUpdate(projectName: string, taskId: string, status: string): void {
-    const projects = this.store.getProjects();
-    const versions = this.store.getVersions();
-    const tasks = this.store.getTasks();
+    const projects = this.getScopedProjects();
+    const versions = this.getScopedVersions();
+    const tasks = this.getScopedTasks();
 
     this.restorePendingSelection(projects, versions);
     this.syncSelection(projects, versions);
@@ -838,6 +890,27 @@ export class ProjectHubDashboardView extends ItemView {
     }
     this.refreshProjectBoardRow(projectName, projects, versions, tasks);
     this.applyTaskMove(taskId, status);
+  }
+
+  private getScopedProjects(): ProjectRecord[] {
+    return this.store.getProjects().filter((project) => this.matchesScope(project.projectPath));
+  }
+
+  private getScopedVersions(): VersionRecord[] {
+    return this.store.getVersions().filter((version) => this.matchesScope(version.projectPath));
+  }
+
+  private getScopedTasks(): TaskRecord[] {
+    return this.store.getTasks().filter((task) => this.matchesScope(task.projectPath));
+  }
+
+  private matchesScope(projectPath: string): boolean {
+    if (!this.scopeRootPath) {
+      return true;
+    }
+
+    const normalizedProjectPath = normalizePath(projectPath);
+    return normalizedProjectPath === this.scopeRootPath || normalizedProjectPath.startsWith(`${this.scopeRootPath}/`);
   }
 }
 
@@ -1043,4 +1116,68 @@ function deriveVersionStatusFromChecklist(lines: string[]): string | null {
     return "in-progress";
   }
   return "todo";
+}
+
+function buildBurndownPointsFromTasks(tasks: TaskRecord[]): BurndownPoint[] {
+  if (tasks.length === 0) {
+    return [];
+  }
+
+  const dateSet = new Set<string>();
+  for (const task of tasks) {
+    if (task.due) {
+      dateSet.add(task.due);
+    }
+    if (task.status === "done") {
+      dateSet.add(new Date(task.modifiedTime).toISOString().slice(0, 10));
+    }
+  }
+
+  if (dateSet.size === 0) {
+    const today = todayString();
+    return [{ date: today, remaining: tasks.filter((task) => task.status !== "done").length, idealRemaining: 0 }];
+  }
+
+  const orderedDates = [...dateSet].sort();
+  const totalTasks = tasks.length;
+  return expandDateRange(orderedDates[0], orderedDates[orderedDates.length - 1]).map((date, index, allDates) => {
+    const completedByDate = tasks.filter(
+      (task) => task.status === "done" && new Date(task.modifiedTime).toISOString().slice(0, 10) <= date
+    ).length;
+    return {
+      date,
+      remaining: totalTasks - completedByDate,
+      idealRemaining: Math.max(
+        0,
+        Math.round(totalTasks - (totalTasks * index) / Math.max(1, allDates.length - 1))
+      )
+    };
+  });
+}
+
+function expandDateRange(startDate: string, endDate: string): string[] {
+  const dates: string[] = [];
+  const cursor = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+
+  while (cursor <= end) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return dates;
+}
+
+function getPathLabel(projectPath: string): string {
+  const segments = normalizePath(projectPath).split("/").filter((segment) => segment.length > 0);
+  return segments[segments.length - 1] ?? projectPath;
+}
+
+function normalizeScopeProjectPath(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = normalizePath(value).trim();
+  return normalized.length > 0 ? normalized : null;
 }
