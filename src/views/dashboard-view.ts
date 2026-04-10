@@ -1,4 +1,5 @@
 import { ItemView, Notice, TFile, ViewStateResult, WorkspaceLeaf, normalizePath } from "obsidian";
+import { buildProjectPlanWorkbook, showExcelSaveDialog, workbookToBuffer } from "../utils/excel-export";
 import { ProjectStore } from "../core/store";
 import { CreateTaskModal } from "../modals/create-task-modal";
 import { BurndownPoint, ProjectRecord, TaskRecord, VersionRecord } from "../types";
@@ -222,6 +223,35 @@ export class ProjectHubDashboardView extends ItemView {
     return syncedCount;
   }
 
+  private async exportToExcel(): Promise<void> {
+    const projects = this.getScopedProjects();
+    const versions = this.getScopedVersions();
+    const tasks = this.getScopedTasks();
+
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const defaultName = `${dateStr} Project Plan.xlsx`;
+
+    const filePath = await showExcelSaveDialog(defaultName);
+    if (!filePath) {
+      return;
+    }
+
+    try {
+      const wb = buildProjectPlanWorkbook(projects, versions, tasks);
+      const buffer = workbookToBuffer(wb);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const fs = (globalThis as any)["require"]?.("fs") as { writeFileSync: (p: string, d: Uint8Array) => void } | undefined;
+      if (!fs) {
+        new Notice("导出失败：无法访问文件系统");
+        return;
+      }
+      fs.writeFileSync(filePath, buffer);
+      new Notice(`已导出：${filePath}`);
+    } catch (err) {
+      new Notice(`导出失败：${String(err)}`);
+    }
+  }
+
   private ensureLayout(container: HTMLElement): void {
     const hostsMissing = !this.headerEl || !this.summaryEl || !this.boardEl || !this.kanbanEl;
     const hostsDetached = Boolean(
@@ -342,6 +372,11 @@ export class ProjectHubDashboardView extends ItemView {
           ? `Project Hub 数据已刷新，并同步 ${syncedCount} 个版本状态`
           : "Project Hub 数据已刷新"
       );
+    });
+
+    const exportButton = actions.createEl("button", { text: "导出 Excel" });
+    exportButton.addEventListener("click", async () => {
+      await this.exportToExcel();
     });
   }
 
