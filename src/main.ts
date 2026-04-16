@@ -325,7 +325,7 @@ export default class ProjectHubPlugin extends Plugin {
   async openConfiguredScope(scopePath: string, options?: { openInNewLeaf?: boolean; targetLeaf?: WorkspaceLeaf }): Promise<ProjectHubDashboardView | null> {
     const normalizedScopePath = normalizeScopePath(scopePath);
     if (!normalizedScopePath) {
-      new Notice("Project Hub 项目路径不能为空");
+      new Notice("Project Hub: scope path cannot be empty.");
       return null;
     }
 
@@ -355,7 +355,7 @@ export default class ProjectHubPlugin extends Plugin {
       ? this.getProjectsForScope(scopeRootPath)
       : this.store.getProjects();
     if (projects.length === 0) {
-      new Notice("当前范围内没有项目，无法创建版本");
+      new Notice("No projects in this scope. Cannot create version.");
       return;
     }
 
@@ -363,8 +363,8 @@ export default class ProjectHubPlugin extends Plugin {
       app: this.app,
       projects,
       initialProject,
-      onSubmit: async ({ project, version }) => {
-        await this.createVersionNote(project, version);
+      onSubmit: async ({ project, version, start, end, effort }) => {
+        await this.createVersionNote(project, version, { start, end, effort });
       }
     }).open();
   }
@@ -423,7 +423,7 @@ export default class ProjectHubPlugin extends Plugin {
     const normalizedScopePath = normalizeScopePath(scopePath);
     const normalizedProjectName = sanitizePathSegment(projectName);
     if (!normalizedScopePath || !normalizedProjectName) {
-      new Notice("项目路径或项目名称无效");
+      new Notice("Invalid project path or name.");
       return;
     }
 
@@ -441,22 +441,22 @@ export default class ProjectHubPlugin extends Plugin {
     await this.store.rebuild();
   }
 
-  private async createVersionNote(projectName: string, versionName: string): Promise<void> {
+  private async createVersionNote(projectName: string, versionName: string, meta?: { start?: string; end?: string; effort?: number }): Promise<void> {
     const projectRecord = this.store.getProjects().find((project) => project.project === projectName);
     if (!projectRecord) {
-      new Notice(`未找到项目: ${projectName}`);
+      new Notice(`Project not found: ${projectName}`);
       return;
     }
 
     const normalizedVersion = normalizeVersionName(versionName);
     if (!normalizedVersion) {
-      new Notice("版本号无效");
+      new Notice("Invalid version number.");
       return;
     }
 
     const filePath = normalizePath(`${projectRecord.projectPath}/Versions/${normalizedVersion}.md`);
     const versionFileResult = await ensureFile(this.app, filePath);
-    await this.initializeVersionFile(versionFileResult.file, projectRecord.project, normalizedVersion, versionFileResult.created);
+    await this.initializeVersionFile(versionFileResult.file, projectRecord.project, normalizedVersion, versionFileResult.created, meta);
     await this.store.rebuild();
   }
 
@@ -474,14 +474,14 @@ export default class ProjectHubPlugin extends Plugin {
       )
       : false;
 
-    await this.openCreatedFile(file, "项目已创建", isNewFile, templateApplied ? PROJECT_TEMPLATE_PATH : null);
+    await this.openCreatedFile(file, "Project created", isNewFile, templateApplied ? PROJECT_TEMPLATE_PATH : null);
   }
 
-  private async initializeVersionFile(file: TFile, projectName: string, versionName: string, isNewFile: boolean): Promise<void> {
+  private async initializeVersionFile(file: TFile, projectName: string, versionName: string, isNewFile: boolean, meta?: { start?: string; end?: string; effort?: number }): Promise<void> {
     const templateApplied = isNewFile
       ? await this.writeQuickCreateFile(
         file,
-        buildVersionFrontmatter(projectName, versionName),
+        buildVersionFrontmatter(projectName, versionName, meta),
         VERSION_TEMPLATE_PATH,
         buildDefaultVersionBody(versionName),
         {
@@ -492,7 +492,7 @@ export default class ProjectHubPlugin extends Plugin {
       )
       : false;
 
-    await this.openCreatedFile(file, "版本已创建", isNewFile, templateApplied ? VERSION_TEMPLATE_PATH : null);
+    await this.openCreatedFile(file, "Version created", isNewFile, templateApplied ? VERSION_TEMPLATE_PATH : null);
   }
 
   private async writeQuickCreateFile(
@@ -538,11 +538,11 @@ export default class ProjectHubPlugin extends Plugin {
     this.app.workspace.revealLeaf(leaf);
 
     if (!isNewFile) {
-      new Notice(`${successMessage}，文件已存在，已直接打开`);
+      new Notice(`${successMessage} — file already exists, opened directly.`);
       return;
     }
 
-    new Notice(templatePath ? `${successMessage}，已按 ${templatePath} 初始化` : `${successMessage}，已写入默认文件属性`);
+    new Notice(templatePath ? `${successMessage} — initialized from ${templatePath}` : `${successMessage} — default frontmatter written.`);
   }
 }
 
@@ -620,17 +620,20 @@ function buildProjectFrontmatter(projectName: string): string {
   ].join("\n");
 }
 
-function buildVersionFrontmatter(projectName: string, versionName: string): string {
+function buildVersionFrontmatter(projectName: string, versionName: string, meta?: { start?: string; end?: string; effort?: number }): string {
   const today = getTodayString();
+  const start = meta?.start ?? today;
+  const end = meta?.end ?? "";
+  const effortVal = meta?.effort !== undefined ? String(meta.effort) : "";
   return [
     "---",
     "type: version",
     `project: ${projectName}`,
-    `version: ${versionName}`,
+    `item: ${versionName}`,
     "status: todo",
-    `start: ${today}`,
-    "end:",
-    "effort:",
+    `start: ${start}`,
+    `end: ${end}`,
+    `effort: ${effortVal}`,
     "---",
     ""
   ].join("\n");
@@ -640,9 +643,9 @@ function buildDefaultProjectBody(projectName: string): string {
   return [
     `# ${projectName}`,
     "",
-    "## 简介",
+    "## Overview",
     "",
-    "## 当前目标",
+    "## Goals",
     "",
     "- [ ] "
   ].join("\n");

@@ -1075,3 +1075,220 @@
     justify-content: space-between;
   }
 }
+
+/* ── Section title row (title + view toggle aligned) ─────────────── */
+.project-hub-section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.project-hub-section-title-row .project-hub-section-title {
+  margin-bottom: 0;
+}
+
+/* ── View toggle button ──────────────────────────────────────────── */
+.project-hub-view-toggle-btn {
+  background: var(--background-secondary);
+  border: 1px solid var(--project-hub-line);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-normal);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.project-hub-view-toggle-btn:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+}
+
+/* ── Task list table view ─────────────────────────────────────────── */
+.project-hub-task-table-wrap {
+  overflow-x: auto;
+  margin-top: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--project-hub-line);
+}
+
+.project-hub-task-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  min-width: 720px;
+}
+
+.project-hub-task-table thead tr {
+  background: var(--background-secondary-alt);
+}
+
+.project-hub-task-table th {
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 700;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--project-hub-line);
+  white-space: nowrap;
+}
+
+.project-hub-task-table td {
+  padding: 7px 10px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.project-hub-task-row {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.project-hub-task-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.project-hub-task-row.is-done {
+  opacity: 0.55;
+}
+
+.project-hub-task-row.is-conflict {
+  background: rgba(239, 68, 68, 0.07);
+}
+
+.project-hub-task-row.is-conflict td.col-task {
+  color: var(--text-normal);
+}
+
+.project-hub-task-table td.col-project {
+  font-weight: 600;
+  color: var(--interactive-accent);
+  white-space: nowrap;
+}
+
+.project-hub-task-table td.col-item {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.project-hub-task-table td.col-workload {
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.project-hub-task-table td.col-remark {
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.project-hub-table-empty {
+  text-align: center;
+  color: var(--text-faint);
+  padding: 24px !important;
+}
+
+/* ── Status & Priority badges ─────────────────────────────────────── */
+.project-hub-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.project-hub-status-badge.status-todo {
+  background: rgba(148, 163, 184, 0.2);
+  color: var(--text-muted);
+}
+
+.project-hub-status-badge.status-in-progress {
+  background: rgba(14, 165, 233, 0.15);
+  color: #0284c7;
+}
+
+.project-hub-status-badge.status-done {
+  background: rgba(16, 185, 129, 0.15);
+  color: #059669;
+}
+
+.project-hub-priority-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.project-hub-priority-badge.priority-urgent,
+.project-hub-priority-badge.priority-critical {
+  background: rgba(153, 27, 27, 0.12);
+  color: #991b1b;
+}
+
+.project-hub-priority-badge.priority-high {
+  background: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+}
+
+.project-hub-priority-badge.priority-medium,
+.project-hub-priority-badge.priority-normal {
+  background: rgba(245, 158, 11, 0.1);
+  color: #d97706;
+}
+
+.project-hub-priority-badge.priority-low {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+}
+
+/* ── Conflict banner ──────────────────────────────────────────────── */
+.project-hub-conflict-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(239, 68, 68, 0.09);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  padding: 8px 14px;
+  margin-top: 10px;
+  font-size: 0.78rem;
+  color: #dc2626;
+}
+
+.project-hub-conflict-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.project-hub-conflict-dot {
+  font-size: 0.8rem;
+  margin-right: 2px;
+}
+
+/* ── Modal: time/workload fields ──────────────────────────────────── */
+.project-hub-native-time-input {
+  min-width: 90px;
+}
+
+.project-hub-end-time-preview {
+  display: inline-block;
+  padding: 4px 10px;
+  background: var(--background-secondary);
+  border-radius: 5px;
+  border: 1px solid var(--project-hub-line);
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 140px;
+}

@@ -40,9 +40,11 @@ export interface TaskRecord extends BaseEntity {
   priority?: string;
   status: TaskStatus;
   start?: string;
+  endTime?: string;
   due?: string;
   completed?: string;
   effort?: number;
+  remark?: string;
   source: string;
   sourceType: "version-task" | "task-file";
   lineNumber: number;

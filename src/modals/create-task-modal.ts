@@ -1,5 +1,6 @@
 import { App, Modal, Notice, Setting, TFile, normalizePath } from "obsidian";
 import { ProjectRecord, VersionRecord } from "../types";
+import { computeEndDatetime, parseWorkload } from "../core/parser";
 
 export interface CreateTaskInput {
   project: string;
@@ -8,6 +9,9 @@ export interface CreateTaskInput {
   owner?: string;
   priority?: string;
   due?: string;
+  startTime?: string;
+  endTime?: string;
+  remark?: string;
 }
 
 interface CreateTaskModalOptions {
@@ -30,6 +34,10 @@ export class CreateTaskModal extends Modal {
   private owner = "wubh";
   private priority = "medium";
   private due = todayString();
+  private startTime = `${todayString()} 09:00`;
+  private workload = "";
+  private endTime = "";
+  private remark = "";
 
   constructor(options: CreateTaskModalOptions) {
     super(options.app);
@@ -45,15 +53,15 @@ export class CreateTaskModal extends Modal {
     contentEl.empty();
     contentEl.addClass("project-hub-modal");
 
-    contentEl.createEl("h2", { text: "快速新建任务" });
+    contentEl.createEl("h2", { text: "New Task" });
     contentEl.createEl("p", {
       cls: "project-hub-modal-subtitle",
-      text: "项目、版本、负责人和日期都可以在这里直接选择。"
+      text: "Select project, version, owner and dates here."
     });
 
     const projectSetting = new Setting(contentEl)
-      .setName("项目")
-      .setDesc("选择任务归属的项目");
+      .setName("Project")
+      .setDesc("Select the project for this task");
     projectSetting.controlEl.empty();
     const projectSelect = projectSetting.controlEl.createEl("select");
     for (const project of this.projects) {
@@ -62,17 +70,17 @@ export class CreateTaskModal extends Modal {
     projectSelect.value = this.project;
 
     new Setting(contentEl)
-      .setName("任务标题")
-      .setDesc("用于生成任务文档和卡片标题")
+      .setName("Task Title")
+      .setDesc("Used for task document and card title")
       .addText((text) => {
-        text.setPlaceholder("例如：升级 JDK17").onChange((value) => {
+        text.setPlaceholder("e.g. Upgrade JDK17").onChange((value) => {
           this.title = value.trim();
         });
       });
 
     const versionSetting = new Setting(contentEl)
-      .setName("版本")
-      .setDesc("必须选择版本，任务会写入对应版本文件的 Tasks 区块");
+      .setName("Version")
+      .setDesc("Required. Task will be written to the version's Tasks section.");
     versionSetting.controlEl.empty();
     const versionSelect = versionSetting.controlEl.createEl("select");
     const syncVersionOptions = () => {
@@ -89,7 +97,7 @@ export class CreateTaskModal extends Modal {
       }
 
       if (seenVersions.size === 0) {
-        versionSelect.createEl("option", { value: "", text: "当前项目暂无版本" });
+        versionSelect.createEl("option", { value: "", text: "No versions for this project" });
       }
 
       if (!seenVersions.has(this.version)) {
@@ -107,15 +115,15 @@ export class CreateTaskModal extends Modal {
     });
 
     new Setting(contentEl)
-      .setName("负责人")
+      .setName("Owner")
       .addText((text) => {
-        text.setPlaceholder("例如：李四").setValue(this.owner).onChange((value) => {
+        text.setPlaceholder("e.g. John").setValue(this.owner).onChange((value) => {
           this.owner = value.trim();
         });
       });
 
     new Setting(contentEl)
-      .setName("优先级")
+      .setName("Priority")
       .addDropdown((dropdown) => {
         for (const option of ["low", "medium", "high", "urgent"]) {
           dropdown.addOption(option, option);
@@ -127,8 +135,8 @@ export class CreateTaskModal extends Modal {
       });
 
     const dueSetting = new Setting(contentEl)
-      .setName("截止日期")
-      .setDesc("点击选择日期");
+      .setName("Due Date")
+      .setDesc("Click to select date");
     dueSetting.controlEl.empty();
     const dueInput = dueSetting.controlEl.createEl("input");
     dueInput.type = "date";
@@ -144,14 +152,75 @@ export class CreateTaskModal extends Modal {
       dueInput.showPicker?.();
     });
 
+    // Start datetime field
+    const startSetting = new Setting(contentEl)
+      .setName("Start Time")
+      .setDesc("Select start date and time");
+    startSetting.controlEl.empty();
+    const startDateInput = startSetting.controlEl.createEl("input");
+    startDateInput.type = "date";
+    startDateInput.value = this.startTime.slice(0, 10);
+    startDateInput.addClass("project-hub-native-date-input");
+    const startTimeSep = startSetting.controlEl.createEl("span", { text: " " });
+    startTimeSep.style.margin = "0 4px";
+    const startTimeInput = startSetting.controlEl.createEl("input");
+    startTimeInput.type = "time";
+    startTimeInput.value = this.startTime.slice(11) || "09:00";
+    startTimeInput.addClass("project-hub-native-time-input");
+
+    // Workload field with auto end-time calculation
+    let endTimeDisplay: HTMLElement;
+    const updateEndTime = () => {
+      const dateVal = startDateInput.value;
+      const timeVal = startTimeInput.value || "09:00";
+      this.startTime = dateVal ? `${dateVal} ${timeVal}` : "";
+      const hours = parseWorkload(this.workload);
+      if (this.startTime && hours !== undefined) {
+        this.endTime = computeEndDatetime(this.startTime, hours);
+        endTimeDisplay.setText(`${this.endTime}`);
+      } else {
+        this.endTime = "";
+        endTimeDisplay.setText("Auto-calculated from workload");
+      }
+    };
+    startDateInput.addEventListener("change", updateEndTime);
+    startTimeInput.addEventListener("change", updateEndTime);
+
+    const workloadSetting = new Setting(contentEl)
+      .setName("Workload")
+      .setDesc("e.g. 1d, 2d, 7.5h (1d = 7.5h)")
+      .addText((text) => {
+        text.setPlaceholder("1d").onChange((value) => {
+          this.workload = value.trim();
+          updateEndTime();
+        });
+      });
+
+    const endTimeSetting = new Setting(contentEl)
+      .setName("End Time (Auto)")
+      .setDesc("Calculated from start + workload");
+    endTimeSetting.controlEl.empty();
+    endTimeDisplay = endTimeSetting.controlEl.createEl("span", {
+      cls: "project-hub-end-time-preview",
+      text: "Auto-calculated from workload"
+    });
+
+    new Setting(contentEl)
+      .setName("Remark")
+      .addText((text) => {
+        text.setPlaceholder("Optional remark").onChange((value) => {
+          this.remark = value.trim();
+        });
+      });
+
     new Setting(contentEl)
       .addButton((button) => {
-        button.setButtonText("创建任务").setCta().onClick(async () => {
+        button.setButtonText("Create Task").setCta().onClick(async () => {
           await this.submit();
         });
       })
       .addExtraButton((button) => {
-        button.setIcon("cross").setTooltip("取消").onClick(() => {
+        button.setIcon("cross").setTooltip("Cancel").onClick(() => {
           this.close();
         });
       });
@@ -159,22 +228,22 @@ export class CreateTaskModal extends Modal {
 
   private async submit(): Promise<void> {
     if (!this.project) {
-      new Notice("请选择项目");
+      new Notice("Please select a project.");
       return;
     }
 
     if (!this.title) {
-      new Notice("任务标题不能为空");
+      new Notice("Task title is required.");
       return;
     }
 
     if (!this.version) {
-      new Notice("请选择版本");
+      new Notice("Please select a version.");
       return;
     }
 
     if (this.due && !/^\d{4}-\d{2}-\d{2}$/.test(this.due)) {
-      new Notice("截止日期格式必须是 YYYY-MM-DD");
+      new Notice("Due date must be in YYYY-MM-DD format.");
       return;
     }
 
@@ -184,7 +253,10 @@ export class CreateTaskModal extends Modal {
       title: this.title,
       owner: this.owner || undefined,
       priority: this.priority,
-      due: this.due || undefined
+      due: this.due || undefined,
+      startTime: this.startTime || undefined,
+      endTime: this.endTime || undefined,
+      remark: this.remark || undefined
     });
 
     const createdFile = this.app.vault.getAbstractFileByPath(taskPath);
@@ -192,7 +264,7 @@ export class CreateTaskModal extends Modal {
       await this.app.workspace.getLeaf(true).openFile(createdFile);
     }
     await this.onCreated?.();
-    new Notice("任务已创建");
+    new Notice("Task created.");
     this.close();
   }
 
@@ -212,7 +284,7 @@ export class CreateTaskModal extends Modal {
     await ensureFolder(this.app, normalizePath(filePath.split("/").slice(0, -1).join("/")));
 
     const abstractFile = this.app.vault.getAbstractFileByPath(filePath);
-    const taskLine = buildTaskLine(input.title, input.owner, input.priority, input.due);
+    const taskLine = buildTaskLine(input.title, input.owner, input.priority, input.due, input.startTime, input.endTime, input.remark);
 
     if (abstractFile instanceof TFile) {
       const content = await this.app.vault.read(abstractFile);
@@ -256,12 +328,15 @@ async function ensureFolder(app: App, folderPath: string): Promise<void> {
   }
 }
 
-function buildTaskLine(title: string, owner?: string, priority?: string, due?: string): string {
+function buildTaskLine(title: string, owner?: string, priority?: string, due?: string, startTime?: string, endTime?: string, remark?: string): string {
   const tokens = [
     title,
     owner ? `@${owner}` : null,
     priority === "high" || priority === "urgent" ? "🔥" : priority === "medium" ? "⚠️" : null,
-    due ? `📅 ${due}` : null
+    due ? `📅 ${due}` : null,
+    startTime ? `🗓 ${startTime}` : null,
+    endTime ? `🏁 ${endTime}` : null,
+    remark ? `💬 ${remark}` : null
   ].filter(Boolean);
 
   return `- [ ] ${tokens.join(" ")}`;
@@ -297,7 +372,7 @@ function buildVersionFile(project: string, version: string, taskLine: string): s
     "---",
     "type: version",
     `project: ${project}`,
-    `version: ${version}`,
+    `item: ${version}`,
     "status: todo",
     "---",
     "",

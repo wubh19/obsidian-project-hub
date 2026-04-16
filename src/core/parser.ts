@@ -178,13 +178,86 @@ function extractEffort(text: string): number | undefined {
   return match ? parseFloat(match[1]) : undefined;
 }
 
+function extractStartTime(text: string): string | undefined {
+  return text.match(/🗓\s*(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)/)?.[1]?.trim();
+}
+
+function extractEndTime(text: string): string | undefined {
+  return text.match(/🏁\s*(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)/)?.[1]?.trim();
+}
+
+function extractRemark(text: string): string | undefined {
+  const match = text.match(/💬\s*([^🗓🏁📅✅⏱@🔥⚠️🚧]+)/u);
+  const value = match?.[1]?.trim();
+  return value && value.length > 0 ? value : undefined;
+}
+
+export function parseWorkload(input: string): number | undefined {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const chineseNumbers: Record<string, number> = {
+    "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
+    "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10
+  };
+
+  if (trimmed === "半天") {
+    return 3.75;
+  }
+
+  for (const [ch, num] of Object.entries(chineseNumbers)) {
+    if (trimmed === `${ch}天`) {
+      return num * 7.5;
+    }
+    if (trimmed === `${ch}小时` || trimmed === `${ch}个小时`) {
+      return num;
+    }
+  }
+
+  const dayMatch = trimmed.match(/^([\d.]+)\s*(?:d(?:ay)?s?|天)$/i);
+  if (dayMatch) {
+    return parseFloat(dayMatch[1]) * 7.5;
+  }
+
+  const hourMatch = trimmed.match(/^([\d.]+)\s*(?:h(?:our)?s?|小时)$/i);
+  if (hourMatch) {
+    return parseFloat(hourMatch[1]);
+  }
+
+  return undefined;
+}
+
+export function computeEndDatetime(startStr: string, effortHours: number): string {
+  let startMs: number;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(startStr)) {
+    startMs = new Date(`${startStr}T09:00:00`).getTime();
+  } else if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(startStr)) {
+    startMs = new Date(`${startStr.replace(" ", "T")}:00`).getTime();
+  } else {
+    return startStr;
+  }
+
+  const endDate = new Date(startMs + effortHours * 3600 * 1000);
+  const y = endDate.getFullYear();
+  const mo = String(endDate.getMonth() + 1).padStart(2, "0");
+  const d = String(endDate.getDate()).padStart(2, "0");
+  const h = String(endDate.getHours()).padStart(2, "0");
+  const min = String(endDate.getMinutes()).padStart(2, "0");
+  return `${y}-${mo}-${d} ${h}:${min}`;
+}
+
 function extractTaskTitle(text: string): string {
   return text
-    .replace(/@([^\s🔥⚠️🚧📅✅⏱]+)/gu, "")
+    .replace(/@([^\s🔥⚠️🚧📅✅⏱🗓🏁💬]+)/gu, "")
     .replace(/[🔥⚠️🚧]/gu, "")
     .replace(/📅\s*\d{4}-\d{2}-\d{2}/g, "")
     .replace(/✅\s*\d{4}-\d{2}-\d{2}/g, "")
     .replace(/⏱(?:️)?\s*[\d.]+h/gi, "")
+    .replace(/🗓\s*\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?/g, "")
+    .replace(/🏁\s*\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?/g, "")
+    .replace(/💬[^]*$/u, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -230,9 +303,12 @@ function parseChecklistTasks(
       owner: extractOwner(rawText),
       priority: extractPriority(rawText),
       status,
+      start: extractStartTime(rawText),
+      endTime: extractEndTime(rawText),
       due: extractDue(rawText),
       completed: extractCompleted(rawText),
       effort: extractEffort(rawText),
+      remark: extractRemark(rawText),
       source,
       sourceType,
       lineNumber: startLine + index,
@@ -266,7 +342,7 @@ function parseProject(frontmatter: FrontmatterLike, file: TFile, content: string
 
 function parseVersion(frontmatter: FrontmatterLike, file: TFile, content: string): VersionRecord | null {
   const projectInfo = resolveProject(frontmatter, file);
-  const version = normalizeString(frontmatter.version);
+  const version = normalizeString(frontmatter.item) ?? normalizeString(frontmatter.version);
   if (!projectInfo.project || !projectInfo.projectPath || !version) {
     return null;
   }
@@ -308,14 +384,17 @@ function parseTask(frontmatter: FrontmatterLike, file: TFile, content: string): 
     modifiedTime: file.stat.mtime,
     project: projectInfo.project,
     projectPath: projectInfo.projectPath,
-    version: normalizeString(frontmatter.version),
+    version: normalizeString(frontmatter.item) ?? normalizeString(frontmatter.version),
     owner: normalizeString(frontmatter.owner),
     priority: normalizeString(frontmatter.priority),
     status,
     start: normalizeString(frontmatter.start),
+    endTime: normalizeString(frontmatter.endTime) ?? normalizeString(frontmatter.end_time),
     due: normalizeString(frontmatter.due),
-    source: normalizeString(frontmatter.version) ?? "legacy-task",
-    sourceType: normalizeString(frontmatter.version) ? "version-task" : "task-file",
+    effort: (() => { const v = normalizeString(frontmatter.effort); return v ? parseFloat(v) : undefined; })(),
+    remark: normalizeString(frontmatter.remark),
+    source: normalizeString(frontmatter.item) ?? normalizeString(frontmatter.version) ?? "legacy-task",
+    sourceType: (normalizeString(frontmatter.item) ?? normalizeString(frontmatter.version)) ? "version-task" : "task-file",
     lineNumber: 1,
     rawText: taskText,
     text: taskText
